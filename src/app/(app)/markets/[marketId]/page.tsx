@@ -3,6 +3,7 @@ import { MarketStatus } from "@prisma/client";
 import { Flame, ScrollText, Trophy, Users } from "lucide-react";
 import { ActivityList } from "@/components/markets/activity-row";
 import { BetSlip } from "@/components/markets/bet-slip";
+import { ViewerPositionCard } from "@/components/markets/viewer-position";
 import { CommentThread } from "@/components/markets/comment-thread";
 import { OddsChart } from "@/components/markets/odds-chart";
 import { PositionsTable } from "@/components/markets/positions-table";
@@ -134,7 +135,7 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
           />
         )}
 
-        <div className="lg:hidden">
+        <div className="space-y-4 lg:hidden">
           {isOpen ? (
             <BetSlip
               marketId={market.id}
@@ -145,6 +146,15 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
               balance={balance}
               viewerStakeTotal={viewerStakeTotal}
               initialSide={side === "NO" ? "NO" : side === "YES" ? "YES" : undefined}
+            />
+          ) : null}
+          {market.viewerStake && viewerStakeTotal > 0 && !isSettled ? (
+            <ViewerPositionCard
+              yesStake={market.viewerStake.yesStake}
+              noStake={market.viewerStake.noStake}
+              yesPool={market.yesPool}
+              noPool={market.noPool}
+              rakeBps={market.rakeBps}
             />
           ) : null}
         </div>
@@ -237,23 +247,13 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
           )}
 
           {market.viewerStake && viewerStakeTotal > 0 && !isSettled ? (
-            <div className="rounded-xl border border-border bg-surface p-4 text-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-faint">Your position</p>
-              <div className="mt-2 space-y-1 tabular-nums">
-                {market.viewerStake.yesStake > 0 ? (
-                  <p className="flex justify-between">
-                    <span className="font-semibold text-yes">YES</span>
-                    <span>{formatPoints(market.viewerStake.yesStake)} pts</span>
-                  </p>
-                ) : null}
-                {market.viewerStake.noStake > 0 ? (
-                  <p className="flex justify-between">
-                    <span className="font-semibold text-no">NO</span>
-                    <span>{formatPoints(market.viewerStake.noStake)} pts</span>
-                  </p>
-                ) : null}
-              </div>
-            </div>
+            <ViewerPositionCard
+              yesStake={market.viewerStake.yesStake}
+              noStake={market.viewerStake.noStake}
+              yesPool={market.yesPool}
+              noPool={market.noPool}
+              rakeBps={market.rakeBps}
+            />
           ) : null}
 
           <div className="rounded-xl border border-border bg-surface p-4 text-xs text-muted">

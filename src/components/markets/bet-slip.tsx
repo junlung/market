@@ -223,8 +223,8 @@ export function BetSlip({
         {state.error ? <p className="text-xs text-no">{state.error}</p> : null}
 
         <p className="text-[11px] leading-relaxed text-faint">
-          Parimutuel pool: final odds lock when the market closes, so the actual payout depends on the
-          final pools. Stakes are locked in — no selling, no take-backs.
+          Heads up: the payout above will drift as friends pile in — what you actually win depends on
+          where the pools sit when betting closes. And once your points are in, they&apos;re in.
         </p>
       </form>
     </div>
