@@ -12,8 +12,18 @@ const MEDALS = ["🥇", "🥈", "🥉"];
 export default async function LeaderboardPage() {
   const session = await requireSession();
   const leaderboard = await getLeaderboard();
-  const podium = leaderboard.slice(0, 3);
-  const rest = leaderboard.slice(3);
+
+  // competition ranking: equal net profit = equal rank (1, 1, 3, ...)
+  let lastProfit = Number.NaN;
+  let lastRank = 0;
+  const ranked = leaderboard.map((row, index) => {
+    const rank = row.netProfit === lastProfit ? lastRank : index + 1;
+    lastProfit = row.netProfit;
+    lastRank = rank;
+    return { ...row, rank };
+  });
+
+  const podium = ranked.slice(0, 3);
 
   return (
     <section className="space-y-5">
@@ -37,7 +47,7 @@ export default async function LeaderboardPage() {
                   index === 2 && "sm:order-3",
                 )}
               >
-                <span className="text-2xl">{MEDALS[index]}</span>
+                <span className="text-2xl">{MEDALS[entry.rank - 1] ?? MEDALS[index]}</span>
                 <Avatar name={entry.name} size="lg" className="mt-2" />
                 <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold">
                   {entry.name}
@@ -55,12 +65,13 @@ export default async function LeaderboardPage() {
                 </p>
                 <p className="mt-0.5 text-xs text-muted tabular-nums">
                   {formatPoints(entry.portfolioValue)} pts total
+                  {entry.rank === 1 && podium.filter((p) => p.rank === 1).length > 1 ? " · tied" : ""}
                 </p>
               </div>
             ))}
           </div>
 
-          {rest.length > 0 || podium.length > 0 ? (
+          {ranked.length > 0 ? (
             <div className="overflow-x-auto rounded-xl border border-border bg-surface">
               <table className="w-full text-sm">
                 <thead>
@@ -74,7 +85,7 @@ export default async function LeaderboardPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {leaderboard.map((entry, index) => (
+                  {ranked.map((entry, index) => (
                     <tr
                       key={entry.userId}
                       className={clsx(
@@ -82,7 +93,13 @@ export default async function LeaderboardPage() {
                         entry.userId === session.user.id ? "bg-primary/5" : "hover:bg-surface-2",
                       )}
                     >
-                      <td className="px-4 py-2.5 font-semibold tabular-nums text-muted">{index + 1}</td>
+                      <td className="px-4 py-2.5 font-semibold tabular-nums text-muted">
+                        {index > 0 && entry.rank === ranked[index - 1].rank ? (
+                          <span className="text-faint">= {entry.rank}</span>
+                        ) : (
+                          entry.rank
+                        )}
+                      </td>
                       <td className="px-4 py-2.5">
                         <span className="flex items-center gap-2 font-medium">
                           <Avatar name={entry.name} size="xs" />
@@ -113,6 +130,12 @@ export default async function LeaderboardPage() {
               </table>
             </div>
           ) : null}
+
+          <p className="text-xs leading-relaxed text-faint">
+            Rank is decided by <span className="font-medium text-muted">net profit</span> — points won
+            beyond what the house handed you (starting grant + weekly allowances). A bigger balance
+            doesn&apos;t buy a better rank; winning bets does. Equal profit means a shared rank.
+          </p>
         </>
       )}
     </section>
