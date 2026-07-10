@@ -5,12 +5,12 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { buttonClasses } from "@/components/ui/button";
 import { getAdminMarkets } from "@/lib/server/market-service";
-import { getPendingUserCount } from "@/lib/server/member-service";
+import { getUserStatusCounts } from "@/lib/server/member-service";
 import { requireAdminSession } from "@/lib/session";
 
 export default async function AdminPage() {
   await requireAdminSession();
-  const [markets, pendingMembers] = await Promise.all([getAdminMarkets(), getPendingUserCount()]);
+  const [markets, memberCounts] = await Promise.all([getAdminMarkets(), getUserStatusCounts()]);
 
   const proposals = markets.filter((market) => market.status === MarketStatus.PROPOSED).length;
   const open = markets.filter((market) => market.status === MarketStatus.OPEN).length;
@@ -27,7 +27,8 @@ export default async function AdminPage() {
   ).length;
 
   const tiles: Array<{ label: string; value: number; href: Route }> = [
-    { label: "Members pending", value: pendingMembers, href: "/admin/members" as Route },
+    { label: "Active members", value: memberCounts.active, href: "/admin/members" as Route },
+    { label: "Members pending", value: memberCounts.pending, href: "/admin/members" as Route },
     { label: "Proposals pending", value: proposals, href: "/admin/markets?status=PROPOSED" as Route },
     { label: "Open markets", value: open, href: "/admin/markets?status=OPEN" as Route },
     { label: "Closing in 24h", value: closingSoon, href: "/admin/markets?status=OPEN" as Route },
@@ -52,9 +53,14 @@ export default async function AdminPage() {
           </Link>
         ))}
       </div>
-      <Link href="/admin/markets" className={buttonClasses("secondary", "md")}>
-        Manage all markets →
-      </Link>
+      <div className="flex flex-wrap gap-2">
+        <Link href="/admin/markets" className={buttonClasses("secondary", "md")}>
+          Manage all markets →
+        </Link>
+        <Link href="/admin/members" className={buttonClasses("secondary", "md")}>
+          Manage members →
+        </Link>
+      </div>
     </section>
   );
 }

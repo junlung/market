@@ -107,13 +107,40 @@ export async function listPendingUsers() {
   });
 }
 
-export async function listMembers() {
-  return prisma.user.findMany({
+/** Every account in every state, with vouch info and current balance. */
+export async function getMembersOverview() {
+  const members = await prisma.user.findMany({
     include: {
       vouchedBy: { select: { name: true } },
     },
     orderBy: [{ status: "desc" }, { createdAt: "asc" }],
   });
+
+  const sums = await prisma.ledgerEntry.groupBy({
+    by: ["userId"],
+    _sum: { amount: true },
+  });
+  const balanceByUser = new Map(sums.map((row) => [row.userId, row._sum.amount ?? 0]));
+
+  return members.map((member) => ({
+    ...member,
+    balance: balanceByUser.get(member.id) ?? 0,
+  }));
+}
+
+export async function getUserStatusCounts() {
+  const rows = await prisma.user.groupBy({
+    by: ["status"],
+    _count: { _all: true },
+  });
+
+  const counts = { active: 0, pending: 0, rejected: 0 };
+  for (const row of rows) {
+    if (row.status === UserStatus.ACTIVE) counts.active = row._count._all;
+    if (row.status === UserStatus.PENDING) counts.pending = row._count._all;
+    if (row.status === UserStatus.REJECTED) counts.rejected = row._count._all;
+  }
+  return counts;
 }
 
 export async function getPendingUserCount() {

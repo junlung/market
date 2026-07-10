@@ -2,24 +2,33 @@ import { UserCheck } from "lucide-react";
 import { MemberReview } from "@/components/admin/member-review";
 import { Avatar } from "@/components/ui/avatar";
 import { PageHeader } from "@/components/ui/page-header";
+import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { formatDateTime } from "@/lib/format";
-import { listMembers } from "@/lib/server/member-service";
+import { formatDateTime, formatPoints } from "@/lib/format";
+import { getMembersOverview } from "@/lib/server/member-service";
 import { requireAdminSession } from "@/lib/session";
 
 export default async function AdminMembersPage() {
   await requireAdminSession();
-  const members = await listMembers();
+  const members = await getMembersOverview();
   const pending = members.filter((member) => member.status === "PENDING");
   const active = members.filter((member) => member.status === "ACTIVE");
   const rejected = members.filter((member) => member.status === "REJECTED");
+  const vouched = pending.filter((member) => member.vouchedBy);
 
   return (
     <section className="space-y-5">
       <PageHeader
         title="Members"
-        description="Approve new signups and see who's in the league. Approval grants the starting balance."
+        description="Everyone who's in, applied, been vouched for, or been turned away. Approval grants the starting balance."
       />
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Active" value={String(active.length)} hint="Playing" />
+        <StatCard label="Pending" value={String(pending.length)} hint="Waiting on you" tone={pending.length > 0 ? "no" : "default"} />
+        <StatCard label="Vouched" value={String(vouched.length)} hint="Pending with a member's backing" tone={vouched.length > 0 ? "yes" : "default"} />
+        <StatCard label="Rejected" value={String(rejected.length)} hint="Can re-apply or be approved below" />
+      </div>
 
       <div>
         <h2 className="mb-2 text-sm font-semibold text-muted">
@@ -41,7 +50,10 @@ export default async function AdminMembersPage() {
                 <div className="flex min-w-0 items-center gap-3">
                   <Avatar name={user.name} size="md" />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{user.name}</p>
+                    <p className="flex items-center gap-2 truncate text-sm font-medium">
+                      {user.name}
+                      {user.vouchedBy ? <StatusBadge label="vouched" /> : null}
+                    </p>
                     <p className="text-xs text-muted">{user.email}</p>
                     <p className="mt-0.5 text-xs text-faint">
                       Signed up {formatDateTime(user.createdAt)}
@@ -83,7 +95,10 @@ export default async function AdminMembersPage() {
                   </p>
                 </div>
               </div>
-              <StatusBadge label="active" />
+              <div className="flex shrink-0 items-center gap-3">
+                <span className="text-sm font-semibold tabular-nums">{formatPoints(user.balance)} pts</span>
+                <StatusBadge label="active" />
+              </div>
             </div>
           ))}
         </div>

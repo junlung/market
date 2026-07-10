@@ -18,6 +18,7 @@ const colorMap: Record<string, string> = {
   lost: "bg-no-bg text-no",
   refunded: "bg-surface-2 text-muted",
   active: "bg-yes-bg text-yes",
+  vouched: "bg-yes-bg text-yes",
   pending: "bg-warn/10 text-warn",
 };
 
