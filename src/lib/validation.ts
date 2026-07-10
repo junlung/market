@@ -9,13 +9,18 @@ const localDateTimeSchema = z
 const points = z.coerce.number().int("Whole points only.").min(1);
 
 const marketFieldsSchema = z.object({
-  title: z.string().trim().min(5),
-  description: z.string().trim().min(10),
-  category: z.string().trim().min(2),
+  title: z.string().trim().min(5, "Question needs at least 5 characters."),
+  description: z.string().trim().min(10, "Description needs at least 10 characters — spell out what counts as YES."),
+  category: z.string().trim().min(2, "Category needs at least 2 characters."),
   closeTime: localDateTimeSchema,
   resolveTime: localDateTimeSchema,
-  resolutionSource: z.string().trim().min(5),
+  resolutionSource: z.string().trim().min(5, "Resolution source needs at least 5 characters."),
 });
+
+/** First validation problem as a human-readable message for form errors. */
+export function describeValidationError(error: z.ZodError, fallback: string) {
+  return error.issues[0]?.message ?? fallback;
+}
 
 export const marketFormSchema = marketFieldsSchema.extend({
   maxStakePerUser: points.max(100_000).optional(),

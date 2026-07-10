@@ -9,7 +9,12 @@ import {
   rejectProposal,
   type ActionResult,
 } from "@/lib/server/market-service";
-import { proposeMarketSchema, rejectProposalSchema, reviewProposalSchema } from "@/lib/validation";
+import {
+  describeValidationError,
+  proposeMarketSchema,
+  rejectProposalSchema,
+  reviewProposalSchema,
+} from "@/lib/validation";
 
 function revalidateProposalViews(marketId?: string) {
   revalidatePath("/dashboard");
@@ -35,7 +40,7 @@ export async function proposeMarketAction(_: ActionResult, formData: FormData): 
   });
 
   if (!parsed.success) {
-    return { error: "Enter valid market details." };
+    return { error: describeValidationError(parsed.error, "Enter valid market details.") };
   }
 
   try {

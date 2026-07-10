@@ -71,12 +71,20 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
             name="title"
             defaultValue={market?.title}
             placeholder="Will Dave finish the marathon?"
+            minLength={5}
             required
           />
         </div>
         <div>
           <Label htmlFor="mf-category">Category</Label>
-          <Input id="mf-category" name="category" defaultValue={market?.category} placeholder="Sports" required />
+          <Input
+            id="mf-category"
+            name="category"
+            defaultValue={market?.category}
+            placeholder="Sports"
+            minLength={2}
+            required
+          />
         </div>
       </div>
 
@@ -88,8 +96,10 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
           defaultValue={market?.description}
           placeholder="Be precise about what counts as YES — future you will thank you."
           className="min-h-28"
+          minLength={10}
           required
         />
+        <p className="mt-1 text-xs text-faint">At least 10 characters.</p>
       </div>
 
       <div className="rounded-lg bg-surface-2 p-3">
@@ -144,6 +154,7 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
             name="resolutionSource"
             defaultValue={market?.resolutionSource}
             placeholder="Strava, group vote, official site…"
+            minLength={5}
             required
           />
         </div>

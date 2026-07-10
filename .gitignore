@@ -11,3 +11,4 @@ prisma/dev.db-journal
 playwright-report
 test-results
 .vercel
+.env*

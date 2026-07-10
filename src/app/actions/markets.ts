@@ -17,6 +17,7 @@ import { ensureWeeklyAllowance } from "@/lib/server/allowance-service";
 import {
   betSchema,
   cancelMarketSchema,
+  describeValidationError,
   marketFormSchema,
   resolveMarketSchema,
 } from "@/lib/validation";
@@ -50,7 +51,7 @@ export async function createMarketAction(_: ActionResult, formData: FormData): P
   const parsed = parseMarketForm(formData);
 
   if (!parsed.success) {
-    return { error: "Enter valid market details." };
+    return { error: describeValidationError(parsed.error, "Enter valid market details.") };
   }
 
   try {
@@ -81,7 +82,7 @@ export async function updateMarketAction(_: ActionResult, formData: FormData): P
   const parsed = parseMarketForm(formData);
 
   if (!parsed.success) {
-    return { error: "Enter valid market details." };
+    return { error: describeValidationError(parsed.error, "Enter valid market details.") };
   }
 
   try {
