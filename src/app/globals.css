@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f2f4f7;
+  --border: #e6e8ee;
+  --border-strong: #d3d7e0;
+  --foreground: #131722;
+  --muted: #6b7280;
+  --faint: #9aa1af;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-fg: #ffffff;
+  --yes: #059669;
+  --yes-bg: rgba(5, 150, 105, 0.1);
+  --no: #dc2626;
+  --no-bg: rgba(220, 38, 38, 0.1);
+  --warn: #d97706;
+  --resolved: #0284c7;
+}
+
+.dark {
+  --background: #0e1218;
+  --surface: #161b24;
+  --surface-2: #1e2530;
+  --border: #262e3b;
+  --border-strong: #37404f;
+  --foreground: #eef1f5;
+  --muted: #8b95a5;
+  --faint: #5d6674;
+  --primary: #3b82f6;
+  --primary-hover: #60a5fa;
+  --primary-fg: #ffffff;
+  /* mark colors validated against #161b24 (dark OKLCH band + CVD) */
+  --yes: #059669;
+  --yes-bg: rgba(5, 150, 105, 0.16);
+  --no: #ef4444;
+  --no-bg: rgba(239, 68, 68, 0.14);
+  --warn: #f59e0b;
+  --resolved: #38bdf8;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-fg);
+  --color-yes: var(--yes);
+  --color-yes-bg: var(--yes-bg);
+  --color-no: var(--no);
+  --color-no-bg: var(--no-bg);
+  --color-warn: var(--warn);
+  --color-resolved: var(--resolved);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --radius-card: 0.75rem;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  text-decoration: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: color-mix(in oklch, var(--primary) 25%, transparent);
+}

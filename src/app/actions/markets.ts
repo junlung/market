@@ -1,0 +1,224 @@
+"use server";
+
+import { BetSide } from "@prisma/client";
+import { revalidatePath } from "next/cache";
+import { requireAdminSession, requireSession } from "@/lib/session";
+import { placeBet, recordBetFailure } from "@/lib/server/bet-service";
+import {
+  cancelMarket,
+  closeMarket,
+  createMarket,
+  openMarket,
+  resolveMarket,
+  updateMarket,
+  type ActionResult,
+} from "@/lib/server/market-service";
+import { ensureWeeklyAllowance } from "@/lib/server/allowance-service";
+import {
+  betSchema,
+  cancelMarketSchema,
+  marketFormSchema,
+  resolveMarketSchema,
+} from "@/lib/validation";
+
+function invalidateAppData() {
+  revalidatePath("/dashboard");
+  revalidatePath("/portfolio");
+  revalidatePath("/history");
+  revalidatePath("/leaderboard");
+  revalidatePath("/account");
+  revalidatePath("/activity");
+  revalidatePath("/admin");
+  revalidatePath("/markets", "layout");
+}
+
+function parseMarketForm(formData: FormData) {
+  return marketFormSchema.safeParse({
+    title: formData.get("title"),
+    description: formData.get("description"),
+    category: formData.get("category"),
+    closeTime: formData.get("closeTime"),
+    resolveTime: formData.get("resolveTime"),
+    resolutionSource: formData.get("resolutionSource"),
+    maxStakePerUser: formData.get("maxStakePerUser") || undefined,
+    rakeBps: formData.get("rakeBps") || undefined,
+  });
+}
+
+export async function createMarketAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
+  const session = await requireAdminSession();
+  const parsed = parseMarketForm(formData);
+
+  if (!parsed.success) {
+    return { error: "Enter valid market details." };
+  }
+
+  try {
+    await createMarket({
+      actorId: session.user.id,
+      fields: {
+        title: parsed.data.title,
+        description: parsed.data.description,
+        category: parsed.data.category,
+        closeTime: new Date(parsed.data.closeTime),
+        resolveTime: new Date(parsed.data.resolveTime),
+        resolutionSource: parsed.data.resolutionSource,
+      },
+      maxStakePerUser: parsed.data.maxStakePerUser,
+      rakeBps: parsed.data.rakeBps,
+      openNow: formData.get("openNow") === "true",
+    });
+    invalidateAppData();
+    return { success: "Market created." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to create market." };
+  }
+}
+
+export async function updateMarketAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
+  const session = await requireAdminSession();
+  const marketId = String(formData.get("marketId") ?? "");
+  const parsed = parseMarketForm(formData);
+
+  if (!parsed.success) {
+    return { error: "Enter valid market details." };
+  }
+
+  try {
+    await updateMarket(marketId, session.user.id, {
+      title: parsed.data.title,
+      description: parsed.data.description,
+      category: parsed.data.category,
+      closeTime: new Date(parsed.data.closeTime),
+      resolveTime: new Date(parsed.data.resolveTime),
+      resolutionSource: parsed.data.resolutionSource,
+      maxStakePerUser: parsed.data.maxStakePerUser,
+      rakeBps: parsed.data.rakeBps,
+    });
+    invalidateAppData();
+    revalidatePath(`/admin/markets/${marketId}`);
+    return { success: "Market updated." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to update market." };
+  }
+}
+
+export async function marketStatusAction(formData: FormData) {
+  const session = await requireAdminSession();
+  const marketId = String(formData.get("marketId") ?? "");
+  const action = String(formData.get("action") ?? "");
+
+  if (!marketId) {
+    return;
+  }
+
+  if (action === "open") {
+    await openMarket(marketId, session.user.id);
+  }
+
+  if (action === "close") {
+    await closeMarket(marketId, session.user.id);
+  }
+
+  invalidateAppData();
+  revalidatePath(`/admin/markets/${marketId}`);
+}
+
+export async function resolveMarketAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
+  const session = await requireAdminSession();
+  const parsed = resolveMarketSchema.safeParse({
+    marketId: formData.get("marketId"),
+    outcome: formData.get("outcome"),
+    resolutionSource: formData.get("resolutionSource"),
+    notes: formData.get("notes") || undefined,
+  });
+
+  if (!parsed.success) {
+    return { error: "Resolution details are invalid." };
+  }
+
+  try {
+    await resolveMarket(
+      parsed.data.marketId,
+      session.user.id,
+      parsed.data.outcome,
+      parsed.data.resolutionSource,
+      parsed.data.notes,
+    );
+    invalidateAppData();
+    revalidatePath(`/admin/markets/${parsed.data.marketId}`);
+    return { success: "Market resolved and paid out." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to resolve market." };
+  }
+}
+
+export async function cancelMarketAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
+  const session = await requireAdminSession();
+  const parsed = cancelMarketSchema.safeParse({
+    marketId: formData.get("marketId"),
+    reason: formData.get("reason"),
+  });
+
+  if (!parsed.success) {
+    return { error: "A cancellation reason is required." };
+  }
+
+  try {
+    await cancelMarket(parsed.data.marketId, session.user.id, parsed.data.reason);
+    invalidateAppData();
+    revalidatePath(`/admin/markets/${parsed.data.marketId}`);
+    return { success: "Market canceled and stakes refunded." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to cancel market." };
+  }
+}
+
+export type PlaceBetActionResult = ActionResult & {
+  yesPool?: number;
+  noPool?: number;
+  stakeTotal?: number;
+};
+
+export async function placeBetAction(
+  _: PlaceBetActionResult,
+  formData: FormData,
+): Promise<PlaceBetActionResult> {
+  const session = await requireSession();
+  const parsed = betSchema.safeParse({
+    marketId: formData.get("marketId"),
+    side: formData.get("side"),
+    amount: formData.get("amount"),
+  });
+
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Bet input is invalid." };
+  }
+
+  try {
+    const result = await placeBet({
+      userId: session.user.id,
+      marketId: parsed.data.marketId,
+      side: parsed.data.side as BetSide,
+      amount: parsed.data.amount,
+    });
+    invalidateAppData();
+    revalidatePath(`/markets/${parsed.data.marketId}`);
+    return {
+      success: `You're in — ${parsed.data.amount} points on ${parsed.data.side}.`,
+      yesPool: result.yesPool,
+      noPool: result.noPool,
+      stakeTotal: result.stakeTotal,
+    };
+  } catch (error) {
+    await recordBetFailure(session.user.id, parsed.data.marketId, error);
+    return { error: error instanceof Error ? error.message : "Bet failed." };
+  }
+}
+
+export async function refreshAllowanceAction() {
+  const session = await requireSession();
+  await ensureWeeklyAllowance(session.user.id);
+  revalidatePath("/dashboard");
+  revalidatePath("/account");
+}

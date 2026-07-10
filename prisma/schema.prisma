@@ -1,0 +1,240 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MEMBER
+}
+
+enum MarketStatus {
+  PROPOSED
+  DRAFT
+  REJECTED
+  OPEN
+  CLOSED
+  RESOLVED
+  CANCELED
+}
+
+enum MarketOutcome {
+  YES
+  NO
+  CANCELED
+}
+
+enum BetSide {
+  YES
+  NO
+}
+
+enum LedgerEntryType {
+  INITIAL_GRANT
+  WEEKLY_ALLOWANCE
+  BET_PLACED
+  MARKET_PAYOUT
+  MARKET_REFUND
+}
+
+enum AppLogLevel {
+  INFO
+  WARN
+  ERROR
+}
+
+enum AppLogEventType {
+  ADMIN_ACTION
+  BET_FAILURE
+  PROPOSAL_ACTION
+  MEMBERSHIP_ACTION
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  name         String
+  passwordHash String
+  role         UserRole   @default(MEMBER)
+  status       UserStatus @default(PENDING)
+
+  // membership review audit
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+
+  // a member vouching for a pending account (visible to admins in the queue)
+  vouchedById  String?
+  vouchedBy    User?      @relation("Vouches", fields: [vouchedById], references: [id], onDelete: SetNull)
+  vouchNote    String?
+  vouchesGiven User[]     @relation("Vouches")
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  bets          Bet[]
+  poolStakes    PoolStake[]
+  ledgerEntries LedgerEntry[]
+  comments      Comment[]
+  appLogs       AppLog[]
+
+  @@index([status, createdAt])
+}
+
+model Market {
+  id               String            @id @default(cuid())
+  title            String
+  description      String
+  category         String
+  closeTime        DateTime
+  resolveTime      DateTime
+  resolutionSource String
+  status           MarketStatus      @default(DRAFT)
+  finalOutcome     MarketOutcome?
+
+  // parimutuel pools — integer points
+  yesPool         Int @default(0)
+  noPool          Int @default(0)
+
+  // economy snapshots frozen at creation; admin-editable until first bet
+  rakeBps         Int @default(500)
+  maxStakePerUser Int
+
+  // provenance + proposal review
+  createdById  String
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  openedById   String?
+  openedAt     DateTime?
+  closedById   String?
+  closedAt     DateTime?
+  resolvedById String?
+  resolvedAt   DateTime?
+  canceledById String?
+  canceledAt   DateTime?
+  firstBetAt   DateTime?
+  lastBetAt    DateTime?
+
+  bets          Bet[]
+  poolStakes    PoolStake[]
+  ledgerEntries LedgerEntry[]
+  comments      Comment[]
+  resolution    MarketResolution?
+  appLogs       AppLog[]
+
+  @@index([status, closeTime])
+  @@index([category, status])
+  @@index([createdById, status])
+}
+
+model Bet {
+  id            String        @id @default(cuid())
+  userId        String
+  marketId      String
+  side          BetSide
+  amount        Int
+  yesPoolAfter  Int
+  noPoolAfter   Int
+  createdAt     DateTime      @default(now())
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  market        Market        @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  ledgerEntries LedgerEntry[]
+
+  @@index([marketId, createdAt])
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+model PoolStake {
+  id        String   @id @default(cuid())
+  userId    String
+  marketId  String
+  yesStake  Int      @default(0)
+  noStake   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  market    Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, marketId])
+  @@index([marketId])
+}
+
+model LedgerEntry {
+  id            String          @id @default(cuid())
+  userId        String
+  marketId      String?
+  betId         String?
+  type          LedgerEntryType
+  amount        Int
+  allowanceWeek String?
+  description   String
+  createdAt     DateTime        @default(now())
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  market        Market?         @relation(fields: [marketId], references: [id], onDelete: SetNull)
+  bet           Bet?            @relation(fields: [betId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, allowanceWeek])
+  @@index([userId, createdAt])
+  @@index([marketId, createdAt])
+}
+
+model MarketResolution {
+  id               String        @id @default(cuid())
+  marketId         String        @unique
+  outcome          MarketOutcome
+  resolutionSource String
+  notes            String?
+  // settlement audit — burned points are recorded here, not in the user ledger.
+  // Invariant: yesPoolFinal + noPoolFinal === totalPaidOut + rakeAmount + dustAmount
+  yesPoolFinal Int
+  noPoolFinal  Int
+  winningPool  Int
+  losingPool   Int
+  rakeAmount   Int
+  dustAmount   Int
+  totalPaidOut Int
+  createdById  String
+  createdAt    DateTime      @default(now())
+  market       Market        @relation(fields: [marketId], references: [id], onDelete: Cascade)
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  marketId  String
+  userId    String
+  body      String
+  createdAt DateTime @default(now())
+  market    Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([marketId, createdAt])
+}
+
+model AppLog {
+  id        String          @id @default(cuid())
+  level     AppLogLevel
+  eventType AppLogEventType
+  message   String
+  userId    String?
+  marketId  String?
+  metadata  Json?
+  createdAt DateTime        @default(now())
+  user      User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  market    Market?         @relation(fields: [marketId], references: [id], onDelete: SetNull)
+
+  @@index([eventType, createdAt])
+}
