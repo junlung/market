@@ -2,12 +2,12 @@
 
 import { useActionState, useState } from "react";
 import { appConfig } from "@/lib/config";
-import type { ActionResult } from "@/lib/server/market-service";
+import type { MarketFormState } from "@/app/actions/markets";
 import { Button } from "@/components/ui/button";
 import { FieldError, Input, Label, Textarea } from "@/components/ui/input";
 
 type Props = {
-  action: (_: ActionResult, formData: FormData) => Promise<ActionResult>;
+  action: (_: MarketFormState, formData: FormData) => Promise<MarketFormState>;
   market?: {
     id: string;
     title: string;
@@ -24,7 +24,7 @@ type Props = {
   submitLabel?: string;
 };
 
-const initialState: ActionResult = {};
+const initialState: MarketFormState = {};
 
 function toInputDateTime(value: Date) {
   return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
@@ -74,6 +74,7 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
             minLength={5}
             required
           />
+          <FieldError message={state.fieldErrors?.title} />
         </div>
         <div>
           <Label htmlFor="mf-category">Category</Label>
@@ -85,6 +86,7 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
             minLength={2}
             required
           />
+          <FieldError message={state.fieldErrors?.category} />
         </div>
       </div>
 
@@ -100,6 +102,7 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
           required
         />
         <p className="mt-1 text-xs text-faint">At least 10 characters.</p>
+        <FieldError message={state.fieldErrors?.description} />
       </div>
 
       <div className="rounded-lg bg-surface-2 p-3">
@@ -131,6 +134,7 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
             required
           />
           <p className="mt-1 text-xs text-faint">Local timezone.</p>
+          <FieldError message={state.fieldErrors?.closeTime} />
         </div>
         <div>
           <Label htmlFor="mf-resolve">Resolves by</Label>
@@ -143,6 +147,7 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
             required
           />
           <p className="mt-1 text-xs text-faint">Must be after close.</p>
+          <FieldError message={state.fieldErrors?.resolveTime} />
         </div>
       </div>
 
@@ -154,9 +159,9 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
             name="resolutionSource"
             defaultValue={market?.resolutionSource}
             placeholder="Strava, group vote, official site…"
-            minLength={5}
             required
           />
+          <FieldError message={state.fieldErrors?.resolutionSource} />
         </div>
         {mode === "admin" ? (
           <>
@@ -170,6 +175,7 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
                 name="maxStakePerUser"
                 defaultValue={market?.maxStakePerUser ?? appConfig.defaultMaxStakePerUser}
               />
+              <FieldError message={state.fieldErrors?.maxStakePerUser} />
             </div>
             <div>
               <Label htmlFor="mf-rake">Rake (bps, 500 = 5%)</Label>
@@ -182,6 +188,7 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
                 name="rakeBps"
                 defaultValue={market?.rakeBps ?? appConfig.rakeBps}
               />
+              <FieldError message={state.fieldErrors?.rakeBps} />
             </div>
           </>
         ) : null}

@@ -14,12 +14,19 @@ const marketFieldsSchema = z.object({
   category: z.string().trim().min(2, "Category needs at least 2 characters."),
   closeTime: localDateTimeSchema,
   resolveTime: localDateTimeSchema,
-  resolutionSource: z.string().trim().min(5, "Resolution source needs at least 5 characters."),
+  resolutionSource: z.string().trim().min(1, "Resolution source is required."),
 });
 
-/** First validation problem as a human-readable message for form errors. */
-export function describeValidationError(error: z.ZodError, fallback: string) {
-  return error.issues[0]?.message ?? fallback;
+/** All validation problems keyed by field name, for inline form errors. */
+export function collectFieldErrors(error: z.ZodError) {
+  const fieldErrors: Record<string, string> = {};
+  for (const issue of error.issues) {
+    const field = String(issue.path[0] ?? "");
+    if (field && !fieldErrors[field]) {
+      fieldErrors[field] = issue.message;
+    }
+  }
+  return fieldErrors;
 }
 
 export const marketFormSchema = marketFieldsSchema.extend({

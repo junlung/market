@@ -17,10 +17,14 @@ import { ensureWeeklyAllowance } from "@/lib/server/allowance-service";
 import {
   betSchema,
   cancelMarketSchema,
-  describeValidationError,
+  collectFieldErrors,
   marketFormSchema,
   resolveMarketSchema,
 } from "@/lib/validation";
+
+export type MarketFormState = ActionResult & {
+  fieldErrors?: Record<string, string>;
+};
 
 function invalidateAppData() {
   revalidatePath("/dashboard");
@@ -46,12 +50,12 @@ function parseMarketForm(formData: FormData) {
   });
 }
 
-export async function createMarketAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
+export async function createMarketAction(_: MarketFormState, formData: FormData): Promise<MarketFormState> {
   const session = await requireAdminSession();
   const parsed = parseMarketForm(formData);
 
   if (!parsed.success) {
-    return { error: describeValidationError(parsed.error, "Enter valid market details.") };
+    return { fieldErrors: collectFieldErrors(parsed.error) };
   }
 
   try {
@@ -76,13 +80,13 @@ export async function createMarketAction(_: ActionResult, formData: FormData): P
   }
 }
 
-export async function updateMarketAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
+export async function updateMarketAction(_: MarketFormState, formData: FormData): Promise<MarketFormState> {
   const session = await requireAdminSession();
   const marketId = String(formData.get("marketId") ?? "");
   const parsed = parseMarketForm(formData);
 
   if (!parsed.success) {
-    return { error: describeValidationError(parsed.error, "Enter valid market details.") };
+    return { fieldErrors: collectFieldErrors(parsed.error) };
   }
 
   try {

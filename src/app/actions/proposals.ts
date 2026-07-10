@@ -9,8 +9,9 @@ import {
   rejectProposal,
   type ActionResult,
 } from "@/lib/server/market-service";
+import type { MarketFormState } from "@/app/actions/markets";
 import {
-  describeValidationError,
+  collectFieldErrors,
   proposeMarketSchema,
   rejectProposalSchema,
   reviewProposalSchema,
@@ -26,7 +27,7 @@ function revalidateProposalViews(marketId?: string) {
   }
 }
 
-export async function proposeMarketAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
+export async function proposeMarketAction(_: MarketFormState, formData: FormData): Promise<MarketFormState> {
   const session = await requireSession();
   await ensureWeeklyAllowance(session.user.id);
 
@@ -40,7 +41,7 @@ export async function proposeMarketAction(_: ActionResult, formData: FormData): 
   });
 
   if (!parsed.success) {
-    return { error: describeValidationError(parsed.error, "Enter valid market details.") };
+    return { fieldErrors: collectFieldErrors(parsed.error) };
   }
 
   try {
