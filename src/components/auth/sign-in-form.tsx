@@ -27,7 +27,7 @@ export function SignInForm() {
       if (result?.error === "ACCOUNT_PENDING") {
         setError("Your account is waiting on admin approval — hang tight.");
       } else if (result?.error === "ACCOUNT_NOT_ACTIVE") {
-        setError("This account isn't active. Talk to your league admin.");
+        setError("This account wasn't approved. You can sign up again to re-apply, or talk to your league admin.");
       } else {
         setError("Email or password is incorrect.");
       }

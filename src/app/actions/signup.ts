@@ -1,5 +1,6 @@
 "use server";
 
+import { UserStatus } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { hashPassword } from "@/lib/password";
@@ -45,19 +46,37 @@ export async function registerWithInvite(_: SignUpFormState, formData: FormData)
     where: { email },
   });
 
-  if (existingUser) {
+  if (existingUser && existingUser.status !== UserStatus.REJECTED) {
     return { error: "An account with that email already exists." };
   }
 
   const passwordHash = await hashPassword(parsed.data.password);
 
-  await prisma.user.create({
-    data: {
-      email,
-      name: parsed.data.name,
-      passwordHash,
-    },
-  });
+  if (existingUser) {
+    // a rejected email may re-apply: reset the account to a fresh PENDING
+    // application (the old review is preserved in the admin audit log)
+    await prisma.user.update({
+      where: { id: existingUser.id },
+      data: {
+        name: parsed.data.name,
+        passwordHash,
+        status: UserStatus.PENDING,
+        reviewedById: null,
+        reviewedAt: null,
+        reviewNote: null,
+        vouchedById: null,
+        vouchNote: null,
+      },
+    });
+  } else {
+    await prisma.user.create({
+      data: {
+        email,
+        name: parsed.data.name,
+        passwordHash,
+      },
+    });
+  }
 
   redirect("/sign-in?pending=1");
 }

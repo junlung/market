@@ -61,11 +61,11 @@ export async function rejectUserAction(_: ActionResult, formData: FormData): Pro
 
   const parsed = rejectUserSchema.safeParse({
     userId: formData.get("userId"),
-    reason: formData.get("reason"),
+    reason: formData.get("reason") || undefined,
   });
 
   if (!parsed.success) {
-    return { error: "A rejection reason is required." };
+    return { error: "Invalid rejection." };
   }
 
   try {

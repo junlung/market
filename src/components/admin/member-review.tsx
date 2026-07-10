@@ -8,7 +8,7 @@ import { FieldError, Input } from "@/components/ui/input";
 
 const initialState: ActionResult = {};
 
-export function MemberReview({ userId }: { userId: string }) {
+export function MemberReview({ userId, canReject = true }: { userId: string; canReject?: boolean }) {
   const [approveState, approveAction, approving] = useActionState(approveUserAction, initialState);
   const [rejectState, rejectAction, rejecting] = useActionState(rejectUserAction, initialState);
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -22,16 +22,18 @@ export function MemberReview({ userId }: { userId: string }) {
             {approving ? "Approving…" : "Approve"}
           </Button>
         </form>
-        <Button type="button" variant="ghost" size="sm" onClick={() => setRejectOpen((v) => !v)}>
-          Reject…
-        </Button>
+        {canReject ? (
+          <Button type="button" variant="ghost" size="sm" onClick={() => setRejectOpen((v) => !v)}>
+            Reject…
+          </Button>
+        ) : null}
       </div>
       <FieldError message={approveState.error} />
 
-      {rejectOpen ? (
+      {canReject && rejectOpen ? (
         <form action={rejectAction} className="flex flex-wrap items-center gap-2">
           <input type="hidden" name="userId" value={userId} />
-          <Input name="reason" placeholder="Who is this?" className="h-8 w-56 text-xs" required />
+          <Input name="reason" placeholder="Optional note (e.g. who is this?)" className="h-8 w-56 text-xs" />
           <Button type="submit" variant="danger" size="sm" disabled={rejecting}>
             {rejecting ? "Rejecting…" : "Reject"}
           </Button>

@@ -14,14 +14,15 @@ function logMembershipAction(message: string, actorId: string) {
 }
 
 /**
- * Approves a pending account. The starting balance is granted here — not at
- * signup — so rejected/junk signups never receive points.
+ * Approves a pending (or previously rejected — admins can change their mind)
+ * account. The starting balance is granted here — not at signup — so
+ * rejected/junk signups never receive points.
  */
 export async function approveUser(userId: string, adminId: string, note?: string) {
   await prisma.$transaction(async (tx) => {
     // status guard inside the tx: double-approval must not double-grant
     const updated = await tx.user.updateMany({
-      where: { id: userId, status: UserStatus.PENDING },
+      where: { id: userId, status: { in: [UserStatus.PENDING, UserStatus.REJECTED] } },
       data: {
         status: UserStatus.ACTIVE,
         reviewedById: adminId,
@@ -31,17 +32,24 @@ export async function approveUser(userId: string, adminId: string, note?: string
     });
 
     if (updated.count === 0) {
-      throw new Error("Only pending accounts can be approved.");
+      throw new Error("Only pending or rejected accounts can be approved.");
     }
 
-    await tx.ledgerEntry.create({
-      data: {
-        userId,
-        type: LedgerEntryType.INITIAL_GRANT,
-        amount: appConfig.startingBalance,
-        description: "Starting balance",
-      },
+    // belt-and-braces: never grant twice, even across reject/approve cycles
+    const existingGrant = await tx.ledgerEntry.findFirst({
+      where: { userId, type: LedgerEntryType.INITIAL_GRANT },
     });
+
+    if (!existingGrant) {
+      await tx.ledgerEntry.create({
+        data: {
+          userId,
+          type: LedgerEntryType.INITIAL_GRANT,
+          amount: appConfig.startingBalance,
+          description: "Starting balance",
+        },
+      });
+    }
   });
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
@@ -49,14 +57,15 @@ export async function approveUser(userId: string, adminId: string, note?: string
   return user;
 }
 
-export async function rejectUser(userId: string, adminId: string, reason: string) {
+export async function rejectUser(userId: string, adminId: string, reason?: string) {
+  const reviewNote = reason?.trim() || "Rejected by admin";
   const updated = await prisma.user.updateMany({
     where: { id: userId, status: UserStatus.PENDING },
     data: {
       status: UserStatus.REJECTED,
       reviewedById: adminId,
       reviewedAt: new Date(),
-      reviewNote: reason,
+      reviewNote,
     },
   });
 
@@ -65,7 +74,7 @@ export async function rejectUser(userId: string, adminId: string, reason: string
   }
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
-  await logMembershipAction(`Rejected signup: ${user.email} (${reason})`, adminId);
+  await logMembershipAction(`Rejected signup: ${user.email} (${reviewNote})`, adminId);
   return user;
 }
 
@@ -100,7 +109,6 @@ export async function listPendingUsers() {
 
 export async function listMembers() {
   return prisma.user.findMany({
-    where: { status: { in: [UserStatus.ACTIVE, UserStatus.PENDING] } },
     include: {
       vouchedBy: { select: { name: true } },
     },

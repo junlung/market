@@ -12,6 +12,7 @@ export default async function AdminMembersPage() {
   const members = await listMembers();
   const pending = members.filter((member) => member.status === "PENDING");
   const active = members.filter((member) => member.status === "ACTIVE");
+  const rejected = members.filter((member) => member.status === "REJECTED");
 
   return (
     <section className="space-y-5">
@@ -87,6 +88,32 @@ export default async function AdminMembersPage() {
           ))}
         </div>
       </div>
+
+      {rejected.length > 0 ? (
+        <details className="rounded-xl border border-border bg-surface">
+          <summary className="cursor-pointer p-4 text-sm font-semibold text-muted">
+            Rejected ({rejected.length}) — approving one lets them in with a fresh starting balance
+          </summary>
+          <div className="divide-y divide-border border-t border-border">
+            {rejected.map((user) => (
+              <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Avatar name={user.name} size="sm" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{user.name}</p>
+                    <p className="text-xs text-muted">{user.email}</p>
+                    <p className="mt-0.5 text-xs text-faint">
+                      Rejected {user.reviewedAt ? formatDateTime(user.reviewedAt) : ""}
+                      {user.reviewNote ? ` — "${user.reviewNote}"` : ""}
+                    </p>
+                  </div>
+                </div>
+                <MemberReview userId={user.id} canReject={false} />
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
     </section>
   );
 }

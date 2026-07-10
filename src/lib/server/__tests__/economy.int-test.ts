@@ -12,6 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { ensureWeeklyAllowance } from "@/lib/server/allowance-service";
 import { placeBet } from "@/lib/server/bet-service";
 import { cancelMarket, resolveMarket } from "@/lib/server/market-service";
+import { approveUser, rejectUser } from "@/lib/server/member-service";
 
 const enabled = process.env.INTEGRATION_TESTS === "1";
 
@@ -234,6 +235,34 @@ describe.skipIf(!enabled)("economy integration", () => {
     });
     expect(resolution.rakeAmount).toBe(0);
     expect(resolution.totalPaidOut).toBe(195);
+  });
+
+  it("reject → approve grants the starting balance exactly once", async () => {
+    const admin = await createUser(0, UserRole.ADMIN);
+    const applicant = await prisma.user.create({
+      data: {
+        email: `applicant-${Date.now()}@test.local`,
+        name: "Applicant",
+        passwordHash: "not-a-real-hash",
+        status: UserStatus.PENDING,
+      },
+    });
+
+    await rejectUser(applicant.id, admin.id); // reason now optional
+    let user = await prisma.user.findUniqueOrThrow({ where: { id: applicant.id } });
+    expect(user.status).toBe(UserStatus.REJECTED);
+    expect(user.reviewNote).toBe("Rejected by admin");
+    expect(await userBalance(applicant.id)).toBe(0);
+
+    // admin changes their mind: rejected accounts are directly approvable
+    await approveUser(applicant.id, admin.id);
+    user = await prisma.user.findUniqueOrThrow({ where: { id: applicant.id } });
+    expect(user.status).toBe(UserStatus.ACTIVE);
+    expect(await userBalance(applicant.id)).toBe(500);
+
+    // double-approval attempts can't double-grant
+    await expect(approveUser(applicant.id, admin.id)).rejects.toThrow();
+    expect(await userBalance(applicant.id)).toBe(500);
   });
 
   it("rejects bets after close time and beyond balance", async () => {

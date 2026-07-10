@@ -87,5 +87,5 @@ export const reviewUserSchema = z.object({
 
 export const rejectUserSchema = z.object({
   userId: z.string().cuid(),
-  reason: z.string().trim().min(3).max(280),
+  reason: z.string().trim().max(280).optional(),
 });
