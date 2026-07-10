@@ -4,7 +4,7 @@ import {
   LedgerEntryType,
   MarketOutcome,
   MarketStatus,
-  UserRole,
+  UserStatus,
 } from "@prisma/client";
 import { appConfig } from "@/lib/config";
 import { buildBalanceBreakdown, reconcileBalanceFromBreakdown, sumLedgerAmounts } from "@/lib/ledger";
@@ -802,8 +802,10 @@ export async function getActivityFeed(limit = 30) {
 }
 
 export async function getLeaderboard() {
+  // every approved player belongs on the board, admins included — only
+  // pending/rejected applicants (who can't hold points) are excluded
   const users = await prisma.user.findMany({
-    where: { role: UserRole.MEMBER },
+    where: { status: UserStatus.ACTIVE },
     select: { id: true, name: true },
   });
 
