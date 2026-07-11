@@ -56,7 +56,7 @@ export function SignInForm() {
       <p className="text-center text-sm text-muted">
         Need an account?{" "}
         <Link className="font-medium text-primary hover:text-primary-hover" href="/sign-up">
-          Use an invite
+          Sign up
         </Link>
       </p>
     </form>

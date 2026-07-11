@@ -44,7 +44,7 @@ export default async function SignInPage({ searchParams }: Props) {
       {params.pending === "1" ? (
         <p className="rounded-lg bg-warn/10 px-3 py-2 text-sm font-medium text-warn">
           You&apos;re in the queue! An admin has to approve your account before you can log in — nudge
-          whoever invited you.
+          a friend in the league to vouch for you.
         </p>
       ) : null}
       <SignInForm />
