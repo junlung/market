@@ -21,7 +21,7 @@ import {
   formatSignedPoints,
 } from "@/lib/format";
 import { getMarketStatusLabel } from "@/lib/markets";
-import { outcomeColorBg, outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
+import { isYesNoMarket, outcomeColorBg, outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { getMarketDetail, getUserBalance } from "@/lib/server/market-service";
 import { requireSession } from "@/lib/session";
 
@@ -47,7 +47,7 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
   const isOpen = market.status === MarketStatus.OPEN && market.closeTime > new Date();
   const isCanceled = market.status === MarketStatus.CANCELED;
   const isSettled = market.status === MarketStatus.RESOLVED || isCanceled;
-  const isBinary = market.outcomes.length === 2;
+  const classic = isYesNoMarket(market.outcomes);
   const viewerStakeTotal = market.viewerStakes.reduce((sum, stake) => sum + stake.amount, 0);
 
   // legacy ?side=YES|NO deep links map to sortOrder 0/1
@@ -56,7 +56,7 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
   const initialOutcomeId =
     market.outcomes.find((candidate) => candidate.id === outcomeParam)?.id ?? sideOutcomeId;
 
-  const headline = isBinary ? market.outcomes[0] : market.leader;
+  const headline = classic ? market.outcomes[0] : market.leader;
   const openingProbability = market.oddsHistory[0]?.probs[headline.sortOrder] ?? 0;
   const delta = Math.round((headline.probability - openingProbability) * 100);
 
@@ -149,7 +149,7 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
           </div>
         ) : (
           <div className="flex items-end gap-3">
-            {isBinary ? (
+            {classic ? (
               <ProbabilityChip probability={headline.probability} size="xl" showLabel />
             ) : (
               <ProbabilityChip

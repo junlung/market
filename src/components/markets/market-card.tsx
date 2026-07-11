@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Trophy, Users } from "lucide-react";
 import { formatChance, formatCompactPoints, formatPoints } from "@/lib/format";
-import { outcomeColorBg, outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
+import { isYesNoMarket, outcomeColorBg, outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { CountdownBadge } from "@/components/ui/countdown-badge";
 import { PoolBar } from "@/components/ui/pool-bar";
 import { ProbabilityChip } from "@/components/ui/probability-chip";
@@ -33,7 +33,7 @@ export type MarketCardData = {
 const TOP_OUTCOMES_SHOWN = 3;
 
 export function MarketCard({ market }: { market: MarketCardData }) {
-  const isBinary = market.outcomes.length === 2;
+  const classic = isYesNoMarket(market.outcomes);
 
   const stakeLabel = market.viewerStakes
     .map((stake) => `${formatPoints(stake.amount)} on ${stake.label}`)
@@ -60,7 +60,7 @@ export function MarketCard({ market }: { market: MarketCardData }) {
             {market.title}
           </h3>
         </Link>
-        {isBinary ? (
+        {classic ? (
           <ProbabilityChip probability={market.outcomes[0].probability} size="lg" showLabel />
         ) : (
           <ProbabilityChip
@@ -73,7 +73,7 @@ export function MarketCard({ market }: { market: MarketCardData }) {
         )}
       </div>
 
-      {isBinary ? (
+      {classic ? (
         <PoolBar outcomes={market.outcomes} className="mt-3" />
       ) : (
         <div className="mt-3 space-y-1.5">
@@ -118,9 +118,9 @@ export function MarketCard({ market }: { market: MarketCardData }) {
         </span>
         <Sparkline
           points={market.sparkPoints}
-          color={isBinary ? undefined : market.leader.color}
+          color={classic ? undefined : market.leader.color}
         />
-        {isBinary ? (
+        {classic ? (
           <span className="relative z-10 flex gap-1.5">
             {market.outcomes.map((outcome) => (
               <Link

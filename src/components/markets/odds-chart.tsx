@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { formatChance } from "@/lib/format";
-import { outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
+import { isYesNoMarket, outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { OutcomeDot } from "@/components/markets/outcome-dot";
 
 export type ChartOutcome = { id: string; label: string; color: string; emoji?: string | null };
@@ -43,8 +43,9 @@ export function OddsChart({
   const [hover, setHover] = useState<ChartPoint | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const isBinary = outcomes.length === 2;
-  // binary markets chart the Yes side only; multi charts every outcome
+  // only the classic Yes/No preset charts a single filled Yes line — a
+  // named-outcome pair still needs both series labeled
+  const isBinary = isYesNoMarket(outcomes);
   const seriesIndexes = isBinary ? [0] : outcomes.map((_, index) => index);
 
   const { paths, areaPath, visible, tMin, tMax, drawOrder } = useMemo(() => {

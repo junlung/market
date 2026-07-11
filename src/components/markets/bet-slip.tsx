@@ -117,9 +117,43 @@ export function BetSlip({
   }, [validAmount, parsedAmount, selectedPool, total, rakeBps, outcomes.length]);
 
   const isBinary = outcomes.length === 2;
+  // when a market uses emojis, they get top billing: stacked above the label
+  // on binary tiles, a large avatar slot on multi-outcome rows
+  const hasEmojis = outcomes.some((outcome) => outcome.emoji?.trim());
 
   const outcomeButton = (outcome: BetSlipOutcome) => {
     const active = selectedId === outcome.id;
+    const colorStyle = active
+      ? { background: outcomeColorVar(outcome.color) }
+      : { background: outcomeColorBg(outcome.color), color: outcomeColorVar(outcome.color) };
+    const emoji = outcome.emoji?.trim();
+
+    if (isBinary && hasEmojis) {
+      return (
+        <button
+          key={outcome.id}
+          type="button"
+          onClick={() => setSelectedId(outcome.id)}
+          aria-pressed={active}
+          className={clsx(
+            "flex h-16 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 text-sm font-bold transition-colors",
+            active ? "text-white" : "hover:brightness-95",
+          )}
+          style={colorStyle}
+        >
+          <span aria-hidden className="text-2xl leading-none">
+            {emoji || "•"}
+          </span>
+          <span className="flex max-w-full items-baseline gap-1.5">
+            <span className="truncate">{outcome.label}</span>
+            <span className="font-semibold opacity-80 tabular-nums">
+              {formatChance(probabilityOf(outcome.id))}
+            </span>
+          </span>
+        </button>
+      );
+    }
+
     return (
       <button
         key={outcome.id}
@@ -127,17 +161,19 @@ export function BetSlip({
         onClick={() => setSelectedId(outcome.id)}
         aria-pressed={active}
         className={clsx(
-          "flex h-11 items-center rounded-lg px-3 text-sm font-bold transition-colors",
-          isBinary ? "flex-1 justify-center gap-1.5" : "w-full justify-between gap-2",
+          "flex items-center rounded-lg px-3 text-sm font-bold transition-colors",
+          hasEmojis ? "h-12" : "h-11",
+          isBinary ? "flex-1 justify-center gap-1.5" : "w-full gap-2",
           active ? "text-white" : "hover:brightness-95",
         )}
-        style={
-          active
-            ? { background: outcomeColorVar(outcome.color) }
-            : { background: outcomeColorBg(outcome.color), color: outcomeColorVar(outcome.color) }
-        }
+        style={colorStyle}
       >
-        <span className="truncate">{outcomeDisplayLabel(outcome)}</span>
+        {hasEmojis && !isBinary ? (
+          <span aria-hidden className="w-8 shrink-0 text-center text-2xl leading-none">
+            {emoji || "•"}
+          </span>
+        ) : null}
+        <span className={clsx("truncate", !isBinary && "flex-1 text-left")}>{outcome.label}</span>
         <span className="font-semibold opacity-80 tabular-nums">
           {formatChance(probabilityOf(outcome.id))}
         </span>

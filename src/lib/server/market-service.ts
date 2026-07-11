@@ -14,7 +14,7 @@ import {
   validateOutcomeDrafts,
   type OutcomeDraft,
 } from "@/lib/markets";
-import { outcomeDisplayLabel } from "@/lib/outcome-colors";
+import { isYesNoMarket, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import {
   assertSafeInt,
   checkConservation,
@@ -688,8 +688,11 @@ export async function getDashboardMarkets(
       market.outcomes.map((outcome) => [outcome.id, outcomeDisplayLabel(outcome)]),
     );
 
-    // sparkline: the current leader's probability over time
-    const leaderIndex = odds.outcomes.findIndex((outcome) => outcome.id === odds.leader.id);
+    // sparkline: the current leader's probability over time — except the
+    // classic Yes/No preset, which always charts the Yes side like the old app
+    const leaderIndex = isYesNoMarket(odds.outcomes)
+      ? 0
+      : odds.outcomes.findIndex((outcome) => outcome.id === odds.leader.id);
     const frames = replayProbabilities(market.outcomes, market.bets);
     const sparkPoints = frames.map((frame) => frame[leaderIndex]);
 

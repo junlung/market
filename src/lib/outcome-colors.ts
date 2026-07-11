@@ -111,6 +111,19 @@ export function graphemeCount(value: string) {
   return [...value].length;
 }
 
+/**
+ * True for the classic Yes/No preset. Only these markets keep the unlabeled
+ * "X% chance" look — a 2-outcome Arsenal/Spurs market is still leader-labeled,
+ * because "chance" of an unnamed option means nothing.
+ */
+export function isYesNoMarket(outcomes: Array<{ label: string }>) {
+  return (
+    outcomes.length === 2 &&
+    outcomes[0].label.trim().toLowerCase() === "yes" &&
+    outcomes[1].label.trim().toLowerCase() === "no"
+  );
+}
+
 /** Display form of an outcome label — emoji-prefixed when one is set. */
 export function outcomeDisplayLabel(outcome: { label: string; emoji?: string | null }) {
   const emoji = outcome.emoji?.trim();

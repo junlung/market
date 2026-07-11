@@ -151,6 +151,7 @@ export default async function AdminMarketDetailPage({ params }: Props) {
                 outcomes: market.outcomes.map((outcome) => ({
                   label: outcome.label,
                   color: outcome.color,
+                  emoji: outcome.emoji,
                 })),
                 maxStakePerUser: market.maxStakePerUser,
                 rakeBps: market.rakeBps,
