@@ -78,6 +78,35 @@ export async function rejectUser(userId: string, adminId: string, reason?: strin
   return user;
 }
 
+/**
+ * Self-service display-name change. Names aren't schema-unique, but a
+ * case-insensitive collision check keeps friends from impersonating each
+ * other on the leaderboard and activity feeds.
+ */
+export async function updateDisplayName(userId: string, name: string) {
+  const trimmed = name.trim();
+
+  const taken = await prisma.user.findFirst({
+    where: {
+      id: { not: userId },
+      name: { equals: trimmed, mode: "insensitive" },
+    },
+    select: { id: true },
+  });
+
+  if (taken) {
+    throw new Error("That name is already taken.");
+  }
+
+  const before = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { name: true },
+  });
+  const updated = await prisma.user.update({ where: { id: userId }, data: { name: trimmed } });
+  await logMembershipAction(`Renamed themselves: ${before.name} → ${trimmed}`, userId);
+  return updated;
+}
+
 /** A member vouching for someone in the queue — shown to admins on review. */
 export async function vouchForUser(userId: string, voucherId: string, note?: string) {
   if (userId === voucherId) {

@@ -3,14 +3,35 @@
 import { revalidatePath } from "next/cache";
 import { requireAdminSession, requireSession } from "@/lib/session";
 import { ensureWeeklyAllowance } from "@/lib/server/allowance-service";
-import { approveUser, rejectUser, vouchForUser } from "@/lib/server/member-service";
+import { approveUser, rejectUser, updateDisplayName, vouchForUser } from "@/lib/server/member-service";
 import type { ActionResult } from "@/lib/server/market-service";
-import { rejectUserSchema, reviewUserSchema, vouchSchema } from "@/lib/validation";
+import { displayNameSchema, rejectUserSchema, reviewUserSchema, vouchSchema } from "@/lib/validation";
 
 function revalidateMemberViews() {
   revalidatePath("/invite");
   revalidatePath("/admin");
   revalidatePath("/admin/members");
+}
+
+export async function updateDisplayNameAction(
+  _: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const session = await requireSession();
+  const parsed = displayNameSchema.safeParse({ name: formData.get("name") });
+
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid name." };
+  }
+
+  try {
+    await updateDisplayName(session.user.id, parsed.data.name);
+    // names render nearly everywhere (leaderboard, activity, positions)
+    revalidatePath("/", "layout");
+    return { success: "Name updated." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to update name." };
+  }
 }
 
 export async function vouchAction(_: ActionResult, formData: FormData): Promise<ActionResult> {

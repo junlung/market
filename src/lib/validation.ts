@@ -109,6 +109,14 @@ export const deleteCommentSchema = z.object({
   commentId: z.string().cuid(),
 });
 
+export const displayNameSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, "Name needs at least 2 characters.")
+    .max(30, "Name maxes out at 30 characters."),
+});
+
 export const vouchSchema = z.object({
   userId: z.string().cuid(),
   note: z.string().trim().max(280).optional(),

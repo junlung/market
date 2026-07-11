@@ -2,6 +2,7 @@ import { LocalTime } from "@/components/ui/local-time";
 import { Gift } from "lucide-react";
 import clsx from "clsx";
 import { Avatar } from "@/components/ui/avatar";
+import { DisplayNameForm } from "@/components/members/display-name-form";
 import { PageHeader } from "@/components/ui/page-header";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { appConfig } from "@/lib/config";
@@ -43,9 +44,11 @@ export default async function AccountPage() {
         <div className="space-y-4">
           <div className="flex flex-col items-center rounded-xl border border-border bg-surface p-5 text-center">
             <Avatar name={session.user.name ?? "Player"} size="lg" />
-            <p className="mt-2 text-sm font-semibold">{session.user.name}</p>
-            <p className="text-xs text-muted">{session.user.email}</p>
+            <p className="text-xs text-muted mt-2">{session.user.email}</p>
             <p className="mt-1 text-xs text-faint">{session.user.role.toLowerCase()}</p>
+            <div className="mt-3 w-full border-t border-border pt-3">
+              <DisplayNameForm currentName={session.user.name ?? ""} />
+            </div>
             <div className="mt-3 flex items-center gap-2 text-xs text-muted">
               Theme <ThemeToggle />
             </div>

@@ -64,9 +64,15 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.role = user.role;
+      }
+
+      // client-side useSession().update({ name }) after a rename — the JWT
+      // otherwise keeps the sign-in-time name until the next login
+      if (trigger === "update" && typeof session?.name === "string") {
+        token.name = session.name;
       }
 
       return token;
