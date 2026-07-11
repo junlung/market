@@ -216,9 +216,9 @@ async function seedMarkets(users: Awaited<ReturnType<typeof seedUsers>>) {
       resolutionSource: "premierleague.com official result",
     },
     outcomes: [
-      { label: "Arsenal", color: "red" },
-      { label: "Draw", color: "amber" },
-      { label: "Spurs", color: "blue" },
+      { label: "Arsenal", color: "red", emoji: "🔴" },
+      { label: "Draw", color: "amber", emoji: "🤝" },
+      { label: "Spurs", color: "blue", emoji: "🐓" },
     ],
     openNow: true,
   });

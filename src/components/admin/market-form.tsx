@@ -8,6 +8,8 @@ import {
   BINARY_PRESET,
   MULTI_OUTCOME_DEAL_ORDER,
   OUTCOME_COLORS,
+  hexContrast,
+  isHexColor,
   outcomeColorVar,
   type OutcomeColor,
 } from "@/lib/outcome-colors";
@@ -15,7 +17,7 @@ import type { MarketFormState } from "@/app/actions/markets";
 import { Button } from "@/components/ui/button";
 import { FieldError, Input, Label, Textarea } from "@/components/ui/input";
 
-type OutcomeRow = { label: string; color: string };
+type OutcomeRow = { label: string; color: string; emoji: string };
 
 type Props = {
   action: (_: MarketFormState, formData: FormData) => Promise<MarketFormState>;
@@ -27,7 +29,7 @@ type Props = {
     closeTime: Date;
     resolveTime: Date;
     resolutionSource: string;
-    outcomes: Array<{ label: string; color: string }>;
+    outcomes: Array<{ label: string; color: string; emoji?: string | null }>;
     maxStakePerUser?: number;
     rakeBps?: number;
   };
@@ -57,6 +59,20 @@ const PRESETS = [
   { label: "Close 2w, resolve +1w", close: 336, resolve: 168 },
 ];
 
+// custom hex colors render as-given in both themes; warn instead of forbid
+// when one is likely unreadable (app surfaces: #ffffff light, #161b24 dark)
+function customColorWarning(hex: string) {
+  if (!isHexColor(hex)) {
+    return null;
+  }
+  const badLight = hexContrast(hex, "#ffffff") < 2.5;
+  const badDark = hexContrast(hex, "#161b24") < 2.5;
+  if (badLight && badDark) return "hard to read in both themes";
+  if (badLight) return "hard to read in light mode";
+  if (badDark) return "hard to read in dark mode";
+  return null;
+}
+
 function nextUnusedColor(rows: OutcomeRow[]): OutcomeColor {
   const used = new Set(rows.map((row) => row.color));
   return (
@@ -75,7 +91,9 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
     market ? toInputDateTime(market.resolveTime) : toInputDateTime(addHours(new Date(), 72)),
   );
   const [outcomes, setOutcomes] = useState<OutcomeRow[]>(
-    market ? market.outcomes.map((o) => ({ label: o.label, color: o.color })) : [...BINARY_PRESET],
+    market
+      ? market.outcomes.map((o) => ({ label: o.label, color: o.color, emoji: o.emoji ?? "" }))
+      : BINARY_PRESET.map((o) => ({ ...o })),
   );
   // the outcome count is fixed once the market exists
   const countLocked = Boolean(market);
@@ -107,12 +125,12 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
 
       const base = isUntouchedPreset
         ? [
-            { label: "", color: MULTI_OUTCOME_DEAL_ORDER[0] },
-            { label: "", color: MULTI_OUTCOME_DEAL_ORDER[1] },
+            { label: "", color: MULTI_OUTCOME_DEAL_ORDER[0], emoji: "" },
+            { label: "", color: MULTI_OUTCOME_DEAL_ORDER[1], emoji: "" },
           ]
         : rows;
 
-      return [...base, { label: "", color: nextUnusedColor(base) }];
+      return [...base, { label: "", color: nextUnusedColor(base), emoji: "" }];
     });
   }
 
@@ -171,53 +189,99 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
         <p className="mb-2 text-xs text-faint">
           2–6 options; exactly one wins. Labels and colors lock in once the first bet lands.
         </p>
-        <div className="space-y-2">
-          {outcomes.map((outcome, index) => (
-            <div key={index} className="flex items-center gap-2">
-              <Input
-                name="outcomeLabel"
-                value={outcome.label}
-                onChange={(event) => updateOutcome(index, { label: event.target.value })}
-                placeholder={`Outcome ${index + 1}`}
-                aria-label={`Outcome ${index + 1} label`}
-                maxLength={40}
-                required
-                className="flex-1"
-              />
-              <input type="hidden" name="outcomeColor" value={outcome.color} />
-              <div className="flex shrink-0 gap-1" role="radiogroup" aria-label={`Outcome ${index + 1} color`}>
-                {OUTCOME_COLORS.map((color) => (
-                  <button
-                    key={color}
-                    type="button"
-                    role="radio"
-                    aria-checked={outcome.color === color}
-                    aria-label={color}
-                    title={color}
-                    onClick={() => updateOutcome(index, { color })}
-                    className={clsx(
-                      "size-5 rounded-full transition-transform",
-                      outcome.color === color
-                        ? "scale-110 ring-2 ring-foreground ring-offset-1 ring-offset-surface"
-                        : "opacity-60 hover:opacity-100",
-                    )}
-                    style={{ background: outcomeColorVar(color) }}
+        <div className="space-y-3">
+          {outcomes.map((outcome, index) => {
+            const customActive = isHexColor(outcome.color);
+            const warning = customColorWarning(outcome.color);
+            return (
+              <div key={index} className="rounded-lg border border-border p-2.5">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    name="outcomeEmoji"
+                    value={outcome.emoji}
+                    onChange={(event) => updateOutcome(index, { emoji: event.target.value })}
+                    placeholder="😀"
+                    aria-label={`Outcome ${index + 1} emoji (optional)`}
+                    maxLength={8}
+                    className="h-10 w-12 shrink-0 rounded-lg border border-border bg-surface-2 text-center placeholder:opacity-40 focus:border-primary focus:bg-surface focus:outline-none"
                   />
-                ))}
-              </div>
-              {!countLocked ? (
-                <button
-                  type="button"
-                  onClick={() => removeOutcome(index)}
-                  disabled={outcomes.length <= 2}
-                  aria-label={`Remove outcome ${index + 1}`}
-                  className="rounded-md p-1 text-faint transition-colors hover:text-no disabled:invisible"
+                  <Input
+                    name="outcomeLabel"
+                    value={outcome.label}
+                    onChange={(event) => updateOutcome(index, { label: event.target.value })}
+                    placeholder={`Outcome ${index + 1}`}
+                    aria-label={`Outcome ${index + 1} label`}
+                    maxLength={40}
+                    required
+                    className="flex-1"
+                  />
+                  {!countLocked ? (
+                    <button
+                      type="button"
+                      onClick={() => removeOutcome(index)}
+                      disabled={outcomes.length <= 2}
+                      aria-label={`Remove outcome ${index + 1}`}
+                      className="rounded-md p-1 text-faint transition-colors hover:text-no disabled:invisible"
+                    >
+                      <X className="size-4" aria-hidden />
+                    </button>
+                  ) : null}
+                </div>
+                <input type="hidden" name="outcomeColor" value={outcome.color} />
+                <div
+                  className="mt-2 flex flex-wrap items-center gap-1.5"
+                  role="radiogroup"
+                  aria-label={`Outcome ${index + 1} color`}
                 >
-                  <X className="size-4" aria-hidden />
-                </button>
-              ) : null}
-            </div>
-          ))}
+                  {OUTCOME_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      role="radio"
+                      aria-checked={outcome.color === color}
+                      aria-label={color}
+                      title={color}
+                      onClick={() => updateOutcome(index, { color })}
+                      className={clsx(
+                        "size-6 rounded-full transition-transform",
+                        outcome.color === color
+                          ? "scale-110 ring-2 ring-foreground ring-offset-1 ring-offset-surface"
+                          : "hover:scale-110",
+                      )}
+                      style={{ background: outcomeColorVar(color) }}
+                    />
+                  ))}
+                  {/* the escape hatch: any hex via the native color picker */}
+                  <label
+                    title="Custom color"
+                    className={clsx(
+                      "relative size-6 cursor-pointer overflow-hidden rounded-full transition-transform",
+                      customActive
+                        ? "scale-110 ring-2 ring-foreground ring-offset-1 ring-offset-surface"
+                        : "hover:scale-110",
+                    )}
+                    style={{
+                      background: customActive
+                        ? outcome.color
+                        : "conic-gradient(#ef4444, #eab308, #22c55e, #06b6d4, #3b82f6, #a855f7, #ef4444)",
+                    }}
+                  >
+                    <input
+                      type="color"
+                      value={customActive ? outcome.color : "#4b7db8"}
+                      onChange={(event) => updateOutcome(index, { color: event.target.value })}
+                      aria-label={`Outcome ${index + 1} custom color`}
+                      className="absolute inset-0 size-full cursor-pointer opacity-0"
+                    />
+                  </label>
+                  {warning ? (
+                    <span className="ml-1 text-[11px] font-medium text-warn">⚠ {warning}</span>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
         </div>
         {!countLocked && outcomes.length < MAX_OUTCOMES ? (
           <Button type="button" variant="secondary" size="sm" onClick={addOutcome} className="mt-2">

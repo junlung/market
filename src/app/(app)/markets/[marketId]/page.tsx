@@ -21,7 +21,7 @@ import {
   formatSignedPoints,
 } from "@/lib/format";
 import { getMarketStatusLabel } from "@/lib/markets";
-import { outcomeColorBg, outcomeColorVar } from "@/lib/outcome-colors";
+import { outcomeColorBg, outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { getMarketDetail, getUserBalance } from "@/lib/server/market-service";
 import { requireSession } from "@/lib/session";
 
@@ -70,6 +70,7 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
         id: outcome.id,
         label: outcome.label,
         color: outcome.color,
+        emoji: outcome.emoji,
         pool: outcome.pool,
       }))}
       rakeBps={market.rakeBps}
@@ -130,7 +131,7 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
             <p className={isCanceled ? "text-lg font-bold text-muted" : "text-lg font-bold"}>
               {isCanceled
                 ? "Canceled — all stakes refunded"
-                : `Resolved: ${market.winningOutcome?.label} ✓`}
+                : `Resolved: ${market.winningOutcome ? outcomeDisplayLabel(market.winningOutcome) : ""} ✓`}
             </p>
             {market.resolution ? (
               <p className="mt-1 text-xs opacity-80">
@@ -154,7 +155,7 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
               <ProbabilityChip
                 probability={headline.probability}
                 color={headline.color}
-                label={headline.label}
+                label={outcomeDisplayLabel(headline)}
                 size="xl"
                 showLabel
               />
@@ -268,7 +269,7 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
                 {isSettled
                   ? isCanceled
                     ? "All stakes were refunded."
-                    : `Resolved: ${market.winningOutcome?.label}.`
+                    : `Resolved: ${market.winningOutcome ? outcomeDisplayLabel(market.winningOutcome) : ""}.`
                   : `Resolves ${formatDateTime(market.resolveTime)}.`}
               </p>
             </div>
@@ -281,7 +282,7 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
               <p key={outcome.id} className="mt-1 flex items-center justify-between gap-2 tabular-nums first:mt-0">
                 <span className="flex min-w-0 items-center gap-1.5">
                   <OutcomeDot color={outcome.color} />
-                  <span className="truncate">{outcome.label}</span>
+                  <span className="truncate">{outcomeDisplayLabel(outcome)}</span>
                 </span>
                 <span className="shrink-0">
                   <span className="font-semibold" style={{ color: outcomeColorVar(outcome.color) }}>

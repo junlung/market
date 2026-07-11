@@ -33,6 +33,7 @@ export async function proposeMarketAction(_: MarketFormState, formData: FormData
 
   const labels = formData.getAll("outcomeLabel").map(String);
   const colors = formData.getAll("outcomeColor").map(String);
+  const emojis = formData.getAll("outcomeEmoji").map(String);
 
   const parsed = proposeMarketSchema.safeParse({
     title: formData.get("title"),
@@ -41,7 +42,11 @@ export async function proposeMarketAction(_: MarketFormState, formData: FormData
     closeTime: formData.get("closeTime"),
     resolveTime: formData.get("resolveTime"),
     resolutionSource: formData.get("resolutionSource"),
-    outcomes: labels.map((label, index) => ({ label, color: colors[index] ?? "" })),
+    outcomes: labels.map((label, index) => ({
+      label,
+      color: colors[index] ?? "",
+      emoji: emojis[index] || undefined,
+    })),
   });
 
   if (!parsed.success) {

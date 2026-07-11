@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Trophy, Users } from "lucide-react";
 import { formatChance, formatCompactPoints, formatPoints } from "@/lib/format";
-import { outcomeColorBg, outcomeColorVar } from "@/lib/outcome-colors";
+import { outcomeColorBg, outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { CountdownBadge } from "@/components/ui/countdown-badge";
 import { PoolBar } from "@/components/ui/pool-bar";
 import { ProbabilityChip } from "@/components/ui/probability-chip";
@@ -12,6 +12,7 @@ export type MarketCardOutcome = {
   id: string;
   label: string;
   color: string;
+  emoji?: string | null;
   pool: number;
   probability: number;
 };
@@ -65,7 +66,7 @@ export function MarketCard({ market }: { market: MarketCardData }) {
           <ProbabilityChip
             probability={market.leader.probability}
             color={market.leader.color}
-            label={market.leader.label}
+            label={outcomeDisplayLabel(market.leader)}
             size="lg"
             showLabel
           />
@@ -83,7 +84,7 @@ export function MarketCard({ market }: { market: MarketCardData }) {
               className="relative z-10 flex items-center gap-2 text-xs"
             >
               <OutcomeDot color={outcome.color} />
-              <span className="w-24 truncate font-medium">{outcome.label}</span>
+              <span className="w-24 truncate font-medium">{outcomeDisplayLabel(outcome)}</span>
               <span className="h-1 flex-1 overflow-hidden rounded-full bg-surface-2">
                 <span
                   className="block h-full rounded-full"
@@ -131,7 +132,7 @@ export function MarketCard({ market }: { market: MarketCardData }) {
                   color: outcomeColorVar(outcome.color),
                 }}
               >
-                {outcome.label}
+                {outcomeDisplayLabel(outcome)}
               </Link>
             ))}
           </span>

@@ -1,8 +1,12 @@
 /**
  * The curated outcome swatch set. Tokens map to the `--oc-*` CSS variables in
- * globals.css, which hold theme-appropriate values validated as an ordered
- * set (CVD + contrast) on both surfaces. Colors bind to outcomes at creation
- * and are never re-derived from rank.
+ * globals.css, which hold theme-appropriate values (the six deal-order hues
+ * are validator-checked for CVD + contrast on both surfaces). Colors bind to
+ * outcomes at creation and are never re-derived from rank.
+ *
+ * A color can also be a raw `#rrggbb` hex — the custom escape hatch. Hex
+ * colors render as-given in both themes; the outcome editor shows a
+ * readability warning instead of enforcing rules.
  */
 export const OUTCOME_COLORS = [
   "blue",
@@ -11,6 +15,10 @@ export const OUTCOME_COLORS = [
   "teal",
   "amber",
   "pink",
+  "lime",
+  "magenta",
+  "slate",
+  "brown",
   "green",
   "red",
 ] as const;
@@ -29,20 +37,36 @@ export const MULTI_OUTCOME_DEAL_ORDER: OutcomeColor[] = [
   "teal",
   "amber",
   "pink",
+  "lime",
+  "magenta",
+  "slate",
+  "brown",
 ];
 
 /** The binary preset: Yes = green, No = red — visually identical to the old app. */
 export const BINARY_PRESET = [
-  { label: "Yes", color: "green" as OutcomeColor },
-  { label: "No", color: "red" as OutcomeColor },
+  { label: "Yes", color: "green" as string, emoji: "" },
+  { label: "No", color: "red" as string, emoji: "" },
 ];
 
 export function isOutcomeColor(value: string): value is OutcomeColor {
   return (OUTCOME_COLORS as readonly string[]).includes(value);
 }
 
-/** CSS value for an outcome color token, e.g. `var(--oc-blue)`. */
+export function isHexColor(value: string) {
+  return /^#[0-9a-f]{6}$/i.test(value);
+}
+
+/** True for anything storable in Outcome.color: a token or a #rrggbb hex. */
+export function isValidOutcomeColor(value: string) {
+  return isOutcomeColor(value) || isHexColor(value);
+}
+
+/** CSS value for an outcome color: `var(--oc-<token>)`, or the hex verbatim. */
 export function outcomeColorVar(color: string) {
+  if (isHexColor(color)) {
+    return color;
+  }
   return `var(--oc-${isOutcomeColor(color) ? color : "blue"})`;
 }
 
@@ -57,4 +81,26 @@ export function defaultOutcomeColor(index: number, outcomeCount: number): Outcom
     return index === 0 ? "green" : "red";
   }
   return MULTI_OUTCOME_DEAL_ORDER[index % MULTI_OUTCOME_DEAL_ORDER.length];
+}
+
+/** Display form of an outcome label — emoji-prefixed when one is set. */
+export function outcomeDisplayLabel(outcome: { label: string; emoji?: string | null }) {
+  const emoji = outcome.emoji?.trim();
+  return emoji ? `${emoji} ${outcome.label}` : outcome.label;
+}
+
+/**
+ * WCAG relative-luminance contrast of a hex color against a surface —
+ * powers the "hard to read" hint on custom colors in the outcome editor.
+ */
+export function hexContrast(hex: string, surfaceHex: string) {
+  const luminance = (value: string) => {
+    const channels = [1, 3, 5].map((offset) => {
+      const channel = Number.parseInt(value.slice(offset, offset + 2), 16) / 255;
+      return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  };
+  const [a, b] = [luminance(hex), luminance(surfaceHex)];
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }

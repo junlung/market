@@ -160,7 +160,10 @@ model Outcome {
   id        String  @id @default(cuid())
   marketId  String
   label     String
+  // a curated token (see outcome-colors.ts) or a custom "#rrggbb" hex
   color     String
+  // optional decoration shown next to the label (e.g. "⚽")
+  emoji     String?
   pool      Int     @default(0)
   poolFinal Int?
   sortOrder Int

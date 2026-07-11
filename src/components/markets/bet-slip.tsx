@@ -6,7 +6,7 @@ import { placeBetAction, type PlaceBetActionResult } from "@/app/actions/markets
 import { appConfig } from "@/lib/config";
 import { formatChance, formatPoints, formatSignedPoints } from "@/lib/format";
 import { estimatePayout } from "@/lib/parimutuel";
-import { outcomeColorBg, outcomeColorVar } from "@/lib/outcome-colors";
+import { outcomeColorBg, outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { useToast } from "@/components/ui/toast";
 
 const CHIPS = [10, 50, 100];
@@ -15,6 +15,7 @@ export type BetSlipOutcome = {
   id: string;
   label: string;
   color: string;
+  emoji?: string | null;
   pool: number;
 };
 
@@ -136,7 +137,7 @@ export function BetSlip({
             : { background: outcomeColorBg(outcome.color), color: outcomeColorVar(outcome.color) }
         }
       >
-        <span className="truncate">{outcome.label}</span>
+        <span className="truncate">{outcomeDisplayLabel(outcome)}</span>
         <span className="font-semibold opacity-80 tabular-nums">
           {formatChance(probabilityOf(outcome.id))}
         </span>
@@ -158,7 +159,7 @@ export function BetSlip({
       <form action={formAction} className="mt-3 space-y-3">
         <input type="hidden" name="marketId" value={marketId} />
         <input type="hidden" name="outcomeId" value={selectedId} />
-        <input type="hidden" name="outcomeLabel" value={selected.label} />
+        <input type="hidden" name="outcomeLabel" value={outcomeDisplayLabel(selected)} />
 
         <div>
           <input

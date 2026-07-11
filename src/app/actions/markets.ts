@@ -40,7 +40,12 @@ function invalidateAppData() {
 function readOutcomeFields(formData: FormData) {
   const labels = formData.getAll("outcomeLabel").map(String);
   const colors = formData.getAll("outcomeColor").map(String);
-  return labels.map((label, index) => ({ label, color: colors[index] ?? "" }));
+  const emojis = formData.getAll("outcomeEmoji").map(String);
+  return labels.map((label, index) => ({
+    label,
+    color: colors[index] ?? "",
+    emoji: emojis[index] || undefined,
+  }));
 }
 
 function parseMarketForm(formData: FormData) {

@@ -3,11 +3,13 @@ import { Avatar } from "@/components/ui/avatar";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { OutcomeDot } from "@/components/markets/outcome-dot";
 import { formatPercent0, formatPoints, formatSignedPoints } from "@/lib/format";
+import { outcomeDisplayLabel } from "@/lib/outcome-colors";
 
 export type PositionOutcome = {
   id: string;
   label: string;
   color: string;
+  emoji?: string | null;
 };
 
 export type PositionRow = {
@@ -74,7 +76,7 @@ export function PositionsTable({
                       return outcome ? (
                         <span key={stake.outcomeId} className="inline-flex items-center gap-1.5 tabular-nums">
                           <OutcomeDot color={outcome.color} />
-                          {formatPoints(stake.amount)} on {outcome.label}
+                          {formatPoints(stake.amount)} on {outcomeDisplayLabel(outcome)}
                         </span>
                       ) : null;
                     })}

@@ -4,7 +4,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { OutcomeDot } from "@/components/markets/outcome-dot";
 import { formatDateTime, formatPoints } from "@/lib/format";
-import { outcomeColorVar } from "@/lib/outcome-colors";
+import { outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { getBetHistory } from "@/lib/server/market-service";
 import { requireSession } from "@/lib/session";
 
@@ -52,7 +52,7 @@ export default async function HistoryPage() {
                         className="max-w-32 truncate font-bold"
                         style={{ color: outcomeColorVar(bet.outcome.color) }}
                       >
-                        {bet.outcome.label}
+                        {outcomeDisplayLabel(bet.outcome)}
                       </span>
                     </span>
                   </td>

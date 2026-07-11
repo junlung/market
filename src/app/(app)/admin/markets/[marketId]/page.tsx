@@ -12,6 +12,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { buttonClasses } from "@/components/ui/button";
 import { formatChance, formatDateTime, formatPoints, formatSignedPoints } from "@/lib/format";
+import { outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { isMarketEditable } from "@/lib/markets";
 import { getAdminMarketDetail, previewSettlement } from "@/lib/server/market-service";
 import { requireAdminSession } from "@/lib/session";
@@ -65,7 +66,7 @@ export default async function AdminMarketDetailPage({ params }: Props) {
         {market.status === MarketStatus.CANCELED ? (
           <StatusBadge label="refunded" />
         ) : market.winningOutcome ? (
-          <StatusBadge label={`won: ${market.winningOutcome.label}`} />
+          <StatusBadge label={`won: ${outcomeDisplayLabel(market.winningOutcome)}`} />
         ) : null}
         <span className="text-xs text-faint">{market.category}</span>
         {market.reviewNote ? (
@@ -76,7 +77,7 @@ export default async function AdminMarketDetailPage({ params }: Props) {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Leading"
-          value={`${formatChance(market.leader.probability)} ${market.leader.label}`}
+          value={`${formatChance(market.leader.probability)} ${outcomeDisplayLabel(market.leader)}`}
         />
         <StatCard
           label="Pot"
@@ -94,7 +95,7 @@ export default async function AdminMarketDetailPage({ params }: Props) {
             <p key={outcome.id} className="flex items-center justify-between gap-2 tabular-nums">
               <span className="flex min-w-0 items-center gap-2">
                 <OutcomeDot color={outcome.color} />
-                <span className="truncate font-medium">{outcome.label}</span>
+                <span className="truncate font-medium">{outcomeDisplayLabel(outcome)}</span>
                 {market.winningOutcomeId === outcome.id ? (
                   <span className="text-xs font-semibold text-yes">winner</span>
                 ) : null}
@@ -179,7 +180,7 @@ export default async function AdminMarketDetailPage({ params }: Props) {
                         .map((stake) => (
                           <p key={stake.outcomeId} className="flex items-center justify-end gap-1.5">
                             <OutcomeDot color={stake.color} />
-                            {stake.label} {formatPoints(stake.amount)}
+                            {outcomeDisplayLabel(stake)} {formatPoints(stake.amount)}
                           </p>
                         ))}
                     </div>
@@ -197,7 +198,7 @@ export default async function AdminMarketDetailPage({ params }: Props) {
                   <div key={outcome.id} className="flex justify-between">
                     <dt className="flex items-center gap-1.5 text-muted">
                       <OutcomeDot color={outcome.color} />
-                      Final pool — {outcome.label}
+                      Final pool — {outcomeDisplayLabel(outcome)}
                     </dt>
                     <dd>{formatPoints(outcome.poolFinal ?? outcome.pool)}</dd>
                   </div>
@@ -251,7 +252,7 @@ export default async function AdminMarketDetailPage({ params }: Props) {
                             .map((stake) => (
                               <span key={stake.outcomeId} className="inline-flex items-center gap-1.5">
                                 <OutcomeDot color={stake.color} />
-                                {formatPoints(stake.amount)} on {stake.label}
+                                {formatPoints(stake.amount)} on {outcomeDisplayLabel(stake)}
                               </span>
                             ))}
                         </span>
@@ -284,6 +285,7 @@ export default async function AdminMarketDetailPage({ params }: Props) {
                 id: outcome.id,
                 label: outcome.label,
                 color: outcome.color,
+                emoji: outcome.emoji,
                 pool: outcome.pool,
               }))}
               previews={previews}

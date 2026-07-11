@@ -9,7 +9,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { buttonClasses } from "@/components/ui/button";
 import { OutcomeDot } from "@/components/markets/outcome-dot";
 import { formatDateTime, formatPoints, formatSignedPoints } from "@/lib/format";
-import { outcomeColorVar } from "@/lib/outcome-colors";
+import { outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { getActiveStakes, getResolvedStakes } from "@/lib/server/market-service";
 import { requireSession } from "@/lib/session";
 
@@ -78,7 +78,7 @@ export default async function PortfolioPage() {
                           className="max-w-28 truncate font-semibold"
                           style={{ color: outcomeColorVar(position.color) }}
                         >
-                          {position.label}
+                          {outcomeDisplayLabel(position)}
                         </span>{" "}
                         {formatPoints(position.amount)} pts
                         {" · if it hits "}
@@ -94,7 +94,7 @@ export default async function PortfolioPage() {
                   <ProbabilityChip
                     probability={stake.leader.probability}
                     color={stake.leader.color}
-                    label={stake.leader.label}
+                    label={outcomeDisplayLabel(stake.leader)}
                     size="md"
                     showLabel
                   />

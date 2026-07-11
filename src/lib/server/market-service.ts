@@ -14,6 +14,7 @@ import {
   validateOutcomeDrafts,
   type OutcomeDraft,
 } from "@/lib/markets";
+import { outcomeDisplayLabel } from "@/lib/outcome-colors";
 import {
   assertSafeInt,
   checkConservation,
@@ -72,6 +73,7 @@ function outcomeCreateInput(outcomes: OutcomeDraft[]) {
     create: outcomes.map((outcome, index) => ({
       label: outcome.label.trim(),
       color: outcome.color,
+      emoji: outcome.emoji?.trim() || null,
       sortOrder: index,
     })),
   };
@@ -293,7 +295,11 @@ export async function updateMarket(
     ...(input.outcomes ?? []).map((outcome, index) =>
       prisma.outcome.update({
         where: { id: market.outcomes[index].id },
-        data: { label: outcome.label.trim(), color: outcome.color },
+        data: {
+          label: outcome.label.trim(),
+          color: outcome.color,
+          emoji: outcome.emoji?.trim() || null,
+        },
       }),
     ),
   ]);
@@ -678,7 +684,9 @@ export async function getDashboardMarkets(
 
   return markets.map((market) => {
     const odds = getMarketOdds(market.outcomes);
-    const labelById = new Map(market.outcomes.map((outcome) => [outcome.id, outcome.label]));
+    const labelById = new Map(
+      market.outcomes.map((outcome) => [outcome.id, outcomeDisplayLabel(outcome)]),
+    );
 
     // sparkline: the current leader's probability over time
     const leaderIndex = odds.outcomes.findIndex((outcome) => outcome.id === odds.leader.id);
@@ -768,7 +776,7 @@ export async function getMarketDetail(marketId: string, userId: string) {
     .map((bet) => ({
       id: bet.id,
       userName: bet.user.name,
-      outcomeLabel: outcomeById.get(bet.outcomeId)?.label ?? "?",
+      outcomeLabel: outcomeDisplayLabel(outcomeById.get(bet.outcomeId) ?? { label: "?" }),
       outcomeColor: outcomeById.get(bet.outcomeId)?.color ?? "blue",
       amount: bet.amount,
       probabilityAfter: bet.totalPoolAfter > 0 ? bet.outcomePoolAfter / bet.totalPoolAfter : 0,
@@ -906,6 +914,7 @@ export async function getActiveStakes(userId: string) {
           outcomeId: stake.outcomeId,
           label: outcome.label,
           color: outcome.color,
+          emoji: outcome.emoji,
           amount: stake.amount,
           probability: outcome.probability,
           ifWon: estimatePayout({
@@ -976,7 +985,7 @@ export async function getResolvedStakes(userId: string) {
       category: market.category,
       status: market.status,
       canceled,
-      winningLabel: winningOutcome?.label ?? null,
+      winningLabel: winningOutcome ? outcomeDisplayLabel(winningOutcome) : null,
       winningColor: winningOutcome?.color ?? null,
       resolvedAt: market.resolvedAt ?? market.canceledAt,
       staked,
@@ -994,7 +1003,7 @@ export async function getBetHistory(userId: string) {
     where: { userId },
     include: {
       market: { select: { id: true, title: true, status: true } },
-      outcome: { select: { label: true, color: true } },
+      outcome: { select: { label: true, color: true, emoji: true } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -1007,14 +1016,14 @@ export async function getActivityFeed(limit = 30) {
     include: {
       user: { select: { name: true } },
       market: { select: { id: true, title: true } },
-      outcome: { select: { label: true, color: true } },
+      outcome: { select: { label: true, color: true, emoji: true } },
     },
   });
 
   return bets.map((bet) => ({
     id: bet.id,
     userName: bet.user.name,
-    outcomeLabel: bet.outcome.label,
+    outcomeLabel: outcomeDisplayLabel(bet.outcome),
     outcomeColor: bet.outcome.color,
     amount: bet.amount,
     probabilityAfter: bet.totalPoolAfter > 0 ? bet.outcomePoolAfter / bet.totalPoolAfter : 0,
@@ -1120,7 +1129,7 @@ export async function getAdminMarketDetail(marketId: string) {
         orderBy: { createdAt: "desc" },
         include: {
           user: { select: { name: true, email: true } },
-          outcome: { select: { label: true, color: true } },
+          outcome: { select: { label: true, color: true, emoji: true } },
         },
       },
       poolStakes: {
@@ -1181,6 +1190,7 @@ export async function getAdminMarketDetail(marketId: string) {
         outcomeId: outcome.id,
         label: outcome.label,
         color: outcome.color,
+        emoji: outcome.emoji,
         amount: row.stakes.get(outcome.id) ?? 0,
       })),
       settlementAmount: settlementByUser.get(row.userId) ?? 0,

@@ -5,7 +5,7 @@ import clsx from "clsx";
 import { TriangleAlert } from "lucide-react";
 import { cancelMarketAction, resolveMarketAction } from "@/app/actions/markets";
 import type { ActionResult } from "@/lib/server/market-service";
-import { outcomeColorBg, outcomeColorVar } from "@/lib/outcome-colors";
+import { outcomeColorBg, outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { Button } from "@/components/ui/button";
 import { FieldError, Input, Label, Textarea } from "@/components/ui/input";
 import { formatPoints, formatSignedPoints } from "@/lib/format";
@@ -16,6 +16,7 @@ export type ResolveOutcome = {
   id: string;
   label: string;
   color: string;
+  emoji?: string | null;
   pool: number;
 };
 
@@ -80,7 +81,7 @@ export function ResolveMarketForm({
                     : { background: outcomeColorBg(outcome.color), color: outcomeColorVar(outcome.color) }
                 }
               >
-                <span className="truncate">{outcome.label}</span>
+                <span className="truncate">{outcomeDisplayLabel(outcome)}</span>
                 <span className="shrink-0 text-xs font-semibold opacity-80 tabular-nums">
                   {formatPoints(outcome.pool)} pts
                 </span>

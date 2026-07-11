@@ -3,10 +3,10 @@
 import { useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { formatChance } from "@/lib/format";
-import { outcomeColorVar } from "@/lib/outcome-colors";
+import { outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { OutcomeDot } from "@/components/markets/outcome-dot";
 
-export type ChartOutcome = { id: string; label: string; color: string };
+export type ChartOutcome = { id: string; label: string; color: string; emoji?: string | null };
 export type ChartPoint = { t: number; probs: number[] };
 
 const RANGES = [
@@ -135,7 +135,7 @@ export function OddsChart({
             {outcomes.map((outcome) => (
               <span key={outcome.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-muted">
                 <OutcomeDot color={outcome.color} />
-                <span className="max-w-28 truncate">{outcome.label}</span>
+                <span className="max-w-28 truncate">{outcomeDisplayLabel(outcome)}</span>
               </span>
             ))}
           </div>
@@ -275,7 +275,7 @@ export function OddsChart({
               outcomes.map((outcome, index) => (
                 <span key={outcome.id} className="inline-flex items-center gap-1">
                   <OutcomeDot color={outcome.color} />
-                  <span className="max-w-24 truncate">{outcome.label}</span>
+                  <span className="max-w-24 truncate">{outcomeDisplayLabel(outcome)}</span>
                   <span className="font-semibold text-foreground tabular-nums">
                     {formatChance(hover.probs[index])}
                   </span>

@@ -1,7 +1,7 @@
 import { MarketStatus } from "@prisma/client";
 import { appConfig } from "@/lib/config";
 import { getOdds } from "@/lib/parimutuel";
-import { isOutcomeColor } from "@/lib/outcome-colors";
+import { isValidOutcomeColor } from "@/lib/outcome-colors";
 
 export const MIN_OUTCOMES = 2;
 export const MAX_OUTCOMES = 6;
@@ -9,6 +9,7 @@ export const MAX_OUTCOMES = 6;
 export type OutcomeDraft = {
   label: string;
   color: string;
+  emoji?: string | null;
 };
 
 export function isMarketEditable(market: {
@@ -51,8 +52,11 @@ export function validateOutcomeDrafts(outcomes: OutcomeDraft[]) {
       throw new Error(`Duplicate outcome label: ${label}`);
     }
     seen.add(key);
-    if (!isOutcomeColor(outcome.color)) {
+    if (!isValidOutcomeColor(outcome.color)) {
       throw new Error(`Unknown outcome color: ${outcome.color}`);
+    }
+    if (outcome.emoji && outcome.emoji.trim().length > 8) {
+      throw new Error("Outcome emoji is limited to a single symbol.");
     }
   }
 }
@@ -77,12 +81,14 @@ export type OutcomeView = {
   id: string;
   label: string;
   color: string;
+  emoji: string | null;
   sortOrder: number;
   pool: number;
   poolFinal: number | null;
   probability: number;
   multiplier: number | null;
 };
+
 
 /**
  * Enrich a market's outcome rows with implied probabilities (1/N when empty).
@@ -93,6 +99,7 @@ export function getMarketOdds(
     id: string;
     label: string;
     color: string;
+    emoji?: string | null;
     sortOrder: number;
     pool: number;
     poolFinal?: number | null;
@@ -105,6 +112,7 @@ export function getMarketOdds(
     id: outcome.id,
     label: outcome.label,
     color: outcome.color,
+    emoji: outcome.emoji ?? null,
     sortOrder: outcome.sortOrder,
     pool: outcome.pool,
     poolFinal: outcome.poolFinal ?? null,

@@ -1,6 +1,6 @@
 import { estimatePayout } from "@/lib/parimutuel";
 import { formatPoints, formatSignedPoints } from "@/lib/format";
-import { outcomeColorVar } from "@/lib/outcome-colors";
+import { outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 
 /**
  * The viewer's stakes with what each would pay if the market settled on the
@@ -12,7 +12,7 @@ export function ViewerPositionCard({
   rakeBps,
 }: {
   stakes: Array<{ outcomeId: string; amount: number }>;
-  outcomes: Array<{ id: string; label: string; color: string; pool: number }>;
+  outcomes: Array<{ id: string; label: string; color: string; emoji?: string | null; pool: number }>;
   rakeBps: number;
 }) {
   const pot = outcomes.reduce((sum, outcome) => sum + outcome.pool, 0);
@@ -23,7 +23,7 @@ export function ViewerPositionCard({
       const outcome = outcomes.find((candidate) => candidate.id === stake.outcomeId)!;
       return {
         ...stake,
-        label: outcome.label,
+        label: outcomeDisplayLabel(outcome),
         color: outcome.color,
         pays: estimatePayout({
           stake: stake.amount,

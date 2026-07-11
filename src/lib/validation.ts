@@ -16,7 +16,15 @@ const outcomesSchema = z
   .array(
     z.object({
       label: z.string().trim().min(1, "Every outcome needs a label.").max(40),
-      color: z.enum(["blue", "orange", "purple", "teal", "amber", "pink", "green", "red"]),
+      // a curated token or a custom "#rrggbb" hex (the escape hatch)
+      color: z
+        .string()
+        .trim()
+        .regex(
+          /^(blue|orange|purple|teal|amber|pink|lime|magenta|slate|brown|green|red|#[0-9a-f]{6})$/i,
+          "Pick a swatch or a valid hex color.",
+        ),
+      emoji: z.string().trim().max(8, "One emoji only.").optional(),
     }),
   )
   .min(2, "A market needs at least 2 outcomes.")

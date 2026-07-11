@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { buttonClasses } from "@/components/ui/button";
 import { formatChance, formatDateTime, formatPoints } from "@/lib/format";
+import { outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { getAdminMarkets } from "@/lib/server/market-service";
 import { requireAdminSession } from "@/lib/session";
 
@@ -88,7 +89,7 @@ export default async function AdminMarketsPage({
                     {market.title}
                   </Link>
                   <p className="mt-0.5 text-xs text-muted tabular-nums">
-                    {formatChance(market.leader.probability)} {market.leader.label} ·{" "}
+                    {formatChance(market.leader.probability)} {outcomeDisplayLabel(market.leader)} ·{" "}
                     {market.outcomes.length} outcomes · {formatPoints(market.pot)} pt pot ·{" "}
                     {market.betCount} bet{market.betCount === 1 ? "" : "s"} · closes{" "}
                     {formatDateTime(market.closeTime)}
