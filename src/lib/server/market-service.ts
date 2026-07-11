@@ -8,15 +8,20 @@ import {
 } from "@prisma/client";
 import { appConfig } from "@/lib/config";
 import { buildBalanceBreakdown, reconcileBalanceFromBreakdown, sumLedgerAmounts } from "@/lib/ledger";
-import { getMarketOdds, validateMarketDraft } from "@/lib/markets";
+import {
+  getMarketOdds,
+  validateMarketDraft,
+  validateOutcomeDrafts,
+  type OutcomeDraft,
+} from "@/lib/markets";
 import {
   assertSafeInt,
   checkConservation,
   computeCancelRefunds,
   computeSettlement,
   estimatePayout,
+  type OutcomeStake,
   type SettlementResult,
-  type StakeRow,
 } from "@/lib/parimutuel";
 import { prisma } from "@/lib/prisma";
 import { withSerializableRetry } from "@/lib/server/tx";
@@ -34,6 +39,8 @@ type MarketFields = {
   resolveTime: Date;
   resolutionSource: string;
 };
+
+type OutcomeRow = { id: string; label: string; color: string; sortOrder: number; pool: number };
 
 function logAdminAction(message: string, userId: string, marketId: string, metadata?: object) {
   return prisma.appLog.create({
@@ -58,6 +65,28 @@ function logProposalAction(message: string, userId: string, marketId: string) {
       marketId,
     },
   });
+}
+
+function outcomeCreateInput(outcomes: OutcomeDraft[]) {
+  return {
+    create: outcomes.map((outcome, index) => ({
+      label: outcome.label.trim(),
+      color: outcome.color,
+      sortOrder: index,
+    })),
+  };
+}
+
+/** Legacy release-1 dual-write: the YES/NO enum value for a binary market's outcome. */
+function legacyOutcomeEnum(outcomes: OutcomeRow[], winningOutcomeId: string | null) {
+  if (winningOutcomeId === null) {
+    return MarketOutcome.CANCELED;
+  }
+  if (outcomes.length !== 2) {
+    return null;
+  }
+  const winner = outcomes.find((outcome) => outcome.id === winningOutcomeId);
+  return winner?.sortOrder === 0 ? MarketOutcome.YES : MarketOutcome.NO;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,11 +133,13 @@ export async function getLedgerEntries(userId: string) {
 export async function createMarket(input: {
   actorId: string;
   fields: MarketFields;
+  outcomes: OutcomeDraft[];
   maxStakePerUser?: number;
   rakeBps?: number;
   openNow?: boolean;
 }) {
   validateMarketDraft(input.fields);
+  validateOutcomeDrafts(input.outcomes);
 
   const maxStakePerUser = input.maxStakePerUser ?? appConfig.defaultMaxStakePerUser;
   const rakeBps = input.rakeBps ?? appConfig.rakeBps;
@@ -122,8 +153,10 @@ export async function createMarket(input: {
       maxStakePerUser,
       rakeBps,
       createdById: input.actorId,
+      outcomes: outcomeCreateInput(input.outcomes),
       ...(input.openNow ? { openedById: input.actorId, openedAt: new Date() } : {}),
     },
+    include: { outcomes: { orderBy: { sortOrder: "asc" } } },
   });
 
   await logAdminAction(
@@ -135,8 +168,13 @@ export async function createMarket(input: {
   return market;
 }
 
-export async function proposeMarket(input: { proposerId: string; fields: MarketFields }) {
+export async function proposeMarket(input: {
+  proposerId: string;
+  fields: MarketFields;
+  outcomes: OutcomeDraft[];
+}) {
   validateMarketDraft(input.fields);
+  validateOutcomeDrafts(input.outcomes);
 
   const market = await prisma.market.create({
     data: {
@@ -145,7 +183,9 @@ export async function proposeMarket(input: { proposerId: string; fields: MarketF
       maxStakePerUser: appConfig.defaultMaxStakePerUser,
       rakeBps: appConfig.rakeBps,
       createdById: input.proposerId,
+      outcomes: outcomeCreateInput(input.outcomes),
     },
+    include: { outcomes: { orderBy: { sortOrder: "asc" } } },
   });
 
   await logProposalAction(`Proposed market: ${market.title}`, input.proposerId, market.id);
@@ -205,9 +245,16 @@ export async function rejectProposal(marketId: string, adminId: string, reason: 
 export async function updateMarket(
   marketId: string,
   adminId: string,
-  input: MarketFields & { maxStakePerUser?: number; rakeBps?: number },
+  input: MarketFields & {
+    maxStakePerUser?: number;
+    rakeBps?: number;
+    outcomes?: OutcomeDraft[];
+  },
 ) {
-  const market = await prisma.market.findUniqueOrThrow({ where: { id: marketId } });
+  const market = await prisma.market.findUniqueOrThrow({
+    where: { id: marketId },
+    include: { outcomes: { orderBy: { sortOrder: "asc" } } },
+  });
 
   const editable =
     market.status === MarketStatus.PROPOSED ||
@@ -220,19 +267,36 @@ export async function updateMarket(
 
   validateMarketDraft(input);
 
-  await prisma.market.update({
-    where: { id: marketId },
-    data: {
-      title: input.title,
-      description: input.description,
-      category: input.category,
-      closeTime: input.closeTime,
-      resolveTime: input.resolveTime,
-      resolutionSource: input.resolutionSource,
-      ...(input.maxStakePerUser !== undefined ? { maxStakePerUser: input.maxStakePerUser } : {}),
-      ...(input.rakeBps !== undefined ? { rakeBps: input.rakeBps } : {}),
-    },
-  });
+  if (input.outcomes) {
+    validateOutcomeDrafts(input.outcomes);
+    // the outcome count is fixed at creation; labels/colors stay editable
+    // until the first bet, and rows keep their sortOrder (no reordering)
+    if (input.outcomes.length !== market.outcomes.length) {
+      throw new Error("The number of outcomes is fixed once a market is created.");
+    }
+  }
+
+  await prisma.$transaction([
+    prisma.market.update({
+      where: { id: marketId },
+      data: {
+        title: input.title,
+        description: input.description,
+        category: input.category,
+        closeTime: input.closeTime,
+        resolveTime: input.resolveTime,
+        resolutionSource: input.resolutionSource,
+        ...(input.maxStakePerUser !== undefined ? { maxStakePerUser: input.maxStakePerUser } : {}),
+        ...(input.rakeBps !== undefined ? { rakeBps: input.rakeBps } : {}),
+      },
+    }),
+    ...(input.outcomes ?? []).map((outcome, index) =>
+      prisma.outcome.update({
+        where: { id: market.outcomes[index].id },
+        data: { label: outcome.label.trim(), color: outcome.color },
+      }),
+    ),
+  ]);
 
   await logAdminAction(`Updated market: ${market.title}`, adminId, marketId);
 }
@@ -279,30 +343,36 @@ export async function closeMarket(marketId: string, adminId: string) {
 // Settlement
 // ---------------------------------------------------------------------------
 
-function toStakeRows(stakes: Array<{ userId: string; yesStake: number; noStake: number }>): StakeRow[] {
+function toOutcomeStakes(stakes: Array<{ userId: string; outcomeId: string; amount: number }>): OutcomeStake[] {
   return stakes.map((stake) => ({
     userId: stake.userId,
-    yesStake: stake.yesStake,
-    noStake: stake.noStake,
+    outcomeId: stake.outcomeId,
+    amount: stake.amount,
   }));
 }
 
 async function writeSettlement(input: {
   marketId: string;
   adminId: string;
-  outcome: MarketOutcome;
+  /** null = cancel: refund everyone */
+  winningOutcomeId: string | null;
   resolutionSource: string;
   notes?: string;
   toStatus: MarketStatus;
 }) {
   return withSerializableRetry(async (tx) => {
-    const market = await tx.market.findUnique({ where: { id: input.marketId } });
+    const market = await tx.market.findUnique({
+      where: { id: input.marketId },
+      include: { outcomes: { orderBy: { sortOrder: "asc" } } },
+    });
 
     if (!market) {
       throw new Error("Market not found.");
     }
 
-    if (input.outcome === MarketOutcome.CANCELED) {
+    const canceling = input.winningOutcomeId === null;
+
+    if (canceling) {
       if (market.status === MarketStatus.RESOLVED || market.status === MarketStatus.CANCELED) {
         throw new Error("This market cannot be canceled.");
       }
@@ -310,12 +380,38 @@ async function writeSettlement(input: {
       throw new Error("Only open or closed markets can be resolved.");
     }
 
-    const stakes = toStakeRows(await tx.poolStake.findMany({ where: { marketId: input.marketId } }));
+    // trust boundary: the winning outcome must belong to this market. A
+    // foreign outcome id would make W = 0 and silently refund the market.
+    const winningOutcome = canceling
+      ? null
+      : (market.outcomes.find((outcome) => outcome.id === input.winningOutcomeId) ?? null);
+    if (!canceling && !winningOutcome) {
+      throw new Error("That outcome doesn't belong to this market.");
+    }
 
-    const result: SettlementResult =
-      input.outcome === MarketOutcome.CANCELED
-        ? computeCancelRefunds(stakes)
-        : computeSettlement(stakes, input.outcome, market.rakeBps);
+    const stakes = toOutcomeStakes(
+      await tx.poolStake.findMany({ where: { marketId: input.marketId } }),
+    );
+
+    // per-outcome pool cross-check — a total-only comparison cannot catch a
+    // stake row pointing at another market's outcome
+    for (const outcome of market.outcomes) {
+      const stakeSum = stakes
+        .filter((stake) => stake.outcomeId === outcome.id)
+        .reduce((sum, stake) => sum + stake.amount, 0);
+      if (stakeSum !== outcome.pool) {
+        throw new Error(`Stake sum for "${outcome.label}" does not match its pool.`);
+      }
+    }
+
+    const knownOutcomeIds = new Set(market.outcomes.map((outcome) => outcome.id));
+    if (stakes.some((stake) => !knownOutcomeIds.has(stake.outcomeId))) {
+      throw new Error("A stake row points at an outcome outside this market.");
+    }
+
+    const result: SettlementResult = canceling
+      ? computeCancelRefunds(stakes)
+      : computeSettlement(stakes, input.winningOutcomeId!, market.rakeBps);
 
     // conservation is re-checked at runtime before anything is written —
     // a math regression aborts the transaction instead of corrupting the ledger
@@ -323,7 +419,8 @@ async function writeSettlement(input: {
       throw new Error("Settlement failed conservation check.");
     }
 
-    if (input.outcome !== MarketOutcome.CANCELED && result.totalIn !== market.yesPool + market.noPool) {
+    const poolTotal = market.outcomes.reduce((sum, outcome) => sum + outcome.pool, 0);
+    if (result.totalIn !== poolTotal) {
       throw new Error("Settlement does not match market pools.");
     }
 
@@ -337,16 +434,28 @@ async function writeSettlement(input: {
           description:
             payout.kind === "REFUND"
               ? `Refund: ${market.title}`
-              : `Payout for ${input.outcome} — ${market.title}`,
+              : `Payout for ${winningOutcome!.label} — ${market.title}`,
         })),
       });
     }
+
+    // freeze the pools so the settlement audit stays in typed ints
+    for (const outcome of market.outcomes) {
+      await tx.outcome.update({
+        where: { id: outcome.id },
+        data: { poolFinal: outcome.pool },
+      });
+    }
+
+    const legacyEnum = legacyOutcomeEnum(market.outcomes, input.winningOutcomeId);
+    const isBinary = market.outcomes.length === 2;
 
     await tx.market.update({
       where: { id: input.marketId },
       data: {
         status: input.toStatus,
-        finalOutcome: input.outcome,
+        winningOutcomeId: input.winningOutcomeId,
+        finalOutcome: legacyEnum,
         ...(input.toStatus === MarketStatus.RESOLVED
           ? {
               closedAt: market.closedAt ?? new Date(),
@@ -366,11 +475,12 @@ async function writeSettlement(input: {
       update: {},
       create: {
         marketId: input.marketId,
-        outcome: input.outcome,
+        winningOutcomeId: input.winningOutcomeId,
+        outcome: legacyEnum,
         resolutionSource: input.resolutionSource,
         notes: input.notes,
-        yesPoolFinal: market.yesPool,
-        noPoolFinal: market.noPool,
+        yesPoolFinal: isBinary ? market.outcomes[0].pool : null,
+        noPoolFinal: isBinary ? market.outcomes[1].pool : null,
         winningPool: result.winningPool,
         losingPool: result.losingPool,
         rakeAmount: result.rake,
@@ -387,22 +497,28 @@ async function writeSettlement(input: {
 export async function resolveMarket(
   marketId: string,
   adminId: string,
-  outcome: "YES" | "NO",
+  winningOutcomeId: string,
   resolutionSource: string,
   notes?: string,
 ) {
-  const market = await prisma.market.findUniqueOrThrow({ where: { id: marketId } });
+  const market = await prisma.market.findUniqueOrThrow({
+    where: { id: marketId },
+    include: { outcomes: true },
+  });
 
   const result = await writeSettlement({
     marketId,
     adminId,
-    outcome: outcome === "YES" ? MarketOutcome.YES : MarketOutcome.NO,
+    winningOutcomeId,
     resolutionSource,
     notes,
     toStatus: MarketStatus.RESOLVED,
   });
 
-  await logAdminAction(`Resolved market ${market.title} to ${outcome}`, adminId, marketId, {
+  const winnerLabel =
+    market.outcomes.find((outcome) => outcome.id === winningOutcomeId)?.label ?? winningOutcomeId;
+
+  await logAdminAction(`Resolved market ${market.title} to ${winnerLabel}`, adminId, marketId, {
     rake: result.rake,
     dust: result.dust,
     paidOut: result.totalOut,
@@ -429,7 +545,7 @@ export async function cancelMarket(marketId: string, adminId: string, reason: st
     await writeSettlement({
       marketId,
       adminId,
-      outcome: MarketOutcome.CANCELED,
+      winningOutcomeId: null,
       resolutionSource: market.resolutionSource,
       notes: reason,
       toStatus: MarketStatus.CANCELED,
@@ -439,30 +555,58 @@ export async function cancelMarket(marketId: string, adminId: string, reason: st
   await logAdminAction(`Canceled market: ${market.title}`, adminId, marketId, { reason });
 }
 
+export type SettlementPreviewRow = {
+  userId: string;
+  name: string;
+  staked: number;
+  winningStake: number;
+  payout: number;
+  profit: number;
+};
+
 /** Dry-run settlement for the admin resolve form — computes payouts without writing. */
-export async function previewSettlement(marketId: string, outcome: "YES" | "NO") {
-  const market = await prisma.market.findUniqueOrThrow({ where: { id: marketId } });
+export async function previewSettlement(marketId: string, winningOutcomeId: string) {
+  const market = await prisma.market.findUniqueOrThrow({
+    where: { id: marketId },
+    include: { outcomes: true },
+  });
+
+  if (!market.outcomes.some((outcome) => outcome.id === winningOutcomeId)) {
+    throw new Error("That outcome doesn't belong to this market.");
+  }
+
   const stakes = await prisma.poolStake.findMany({
     where: { marketId },
     include: { user: { select: { name: true } } },
   });
 
-  const result = computeSettlement(toStakeRows(stakes), outcome, market.rakeBps);
+  const result = computeSettlement(toOutcomeStakes(stakes), winningOutcomeId, market.rakeBps);
   const payoutByUser = new Map(result.payouts.map((payout) => [payout.userId, payout]));
 
-  const rows = stakes
-    .filter((stake) => stake.yesStake > 0 || stake.noStake > 0)
-    .map((stake) => {
-      const payout = payoutByUser.get(stake.userId);
-      const staked = stake.yesStake + stake.noStake;
-      return {
-        userId: stake.userId,
-        name: stake.user.name,
-        yesStake: stake.yesStake,
-        noStake: stake.noStake,
-        payout: payout?.amount ?? 0,
-        profit: (payout?.amount ?? 0) - staked,
-      };
+  const byUser = new Map<string, SettlementPreviewRow>();
+  for (const stake of stakes) {
+    if (stake.amount === 0) {
+      continue;
+    }
+    const row = byUser.get(stake.userId) ?? {
+      userId: stake.userId,
+      name: stake.user.name,
+      staked: 0,
+      winningStake: 0,
+      payout: 0,
+      profit: 0,
+    };
+    row.staked += stake.amount;
+    if (stake.outcomeId === winningOutcomeId) {
+      row.winningStake += stake.amount;
+    }
+    byUser.set(stake.userId, row);
+  }
+
+  const rows = [...byUser.values()]
+    .map((row) => {
+      const payout = payoutByUser.get(row.userId)?.amount ?? 0;
+      return { ...row, payout, profit: payout - row.staked };
     })
     .sort((a, b) => b.payout - a.payout || a.name.localeCompare(b.name));
 
@@ -472,6 +616,34 @@ export async function previewSettlement(marketId: string, outcome: "YES" | "NO")
 // ---------------------------------------------------------------------------
 // Reads
 // ---------------------------------------------------------------------------
+
+type ReplayBet = { outcomeId: string; amount: number };
+
+/**
+ * Replay bets (already ordered by [createdAt, id]) over zeroed pools and
+ * report each outcome's probability after every bet. Row 0 is the 1/N prior.
+ */
+function replayProbabilities(outcomes: OutcomeRow[], bets: ReplayBet[]) {
+  const pools = new Map(outcomes.map((outcome) => [outcome.id, 0]));
+  let total = 0;
+  const prior = outcomes.map(() => 1 / outcomes.length);
+
+  const frames: number[][] = [prior];
+  for (const bet of bets) {
+    if (!pools.has(bet.outcomeId)) {
+      continue;
+    }
+    pools.set(bet.outcomeId, (pools.get(bet.outcomeId) ?? 0) + bet.amount);
+    total += bet.amount;
+    frames.push(
+      outcomes.map((outcome) =>
+        total > 0 ? (pools.get(outcome.id) ?? 0) / total : 1 / outcomes.length,
+      ),
+    );
+  }
+
+  return frames;
+}
 
 export async function getDashboardMarkets(
   userId: string,
@@ -491,26 +663,35 @@ export async function getDashboardMarkets(
         : {}),
     },
     include: {
-      poolStakes: { where: { userId } },
-      bets: {
-        orderBy: { createdAt: "asc" },
-        select: { yesPoolAfter: true, noPoolAfter: true },
+      outcomes: { orderBy: { sortOrder: "asc" } },
+      poolStakes: {
+        where: { amount: { gt: 0 } },
+        select: { userId: true, outcomeId: true, amount: true },
       },
-      _count: { select: { poolStakes: true } },
+      bets: {
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: { outcomeId: true, amount: true },
+      },
     },
     orderBy: { closeTime: "asc" },
   });
 
   return markets.map((market) => {
-    const odds = getMarketOdds(market);
-    const stake = market.poolStakes[0] ?? null;
-    const sparkPoints = [
-      0.5,
-      ...market.bets.map((bet) => {
-        const total = bet.yesPoolAfter + bet.noPoolAfter;
-        return total > 0 ? bet.yesPoolAfter / total : 0.5;
-      }),
-    ];
+    const odds = getMarketOdds(market.outcomes);
+    const labelById = new Map(market.outcomes.map((outcome) => [outcome.id, outcome.label]));
+
+    // sparkline: the current leader's probability over time
+    const leaderIndex = odds.outcomes.findIndex((outcome) => outcome.id === odds.leader.id);
+    const frames = replayProbabilities(market.outcomes, market.bets);
+    const sparkPoints = frames.map((frame) => frame[leaderIndex]);
+
+    const viewerStakes = market.poolStakes
+      .filter((stake) => stake.userId === userId)
+      .map((stake) => ({
+        outcomeId: stake.outcomeId,
+        label: labelById.get(stake.outcomeId) ?? "?",
+        amount: stake.amount,
+      }));
 
     return {
       id: market.id,
@@ -518,12 +699,12 @@ export async function getDashboardMarkets(
       category: market.category,
       closeTime: market.closeTime,
       status: market.status,
-      yesPool: market.yesPool,
-      noPool: market.noPool,
-      ...odds,
-      participants: market._count.poolStakes,
+      outcomes: odds.outcomes,
+      leader: odds.leader,
+      pot: odds.pot,
+      participants: new Set(market.poolStakes.map((stake) => stake.userId)).size,
       sparkPoints,
-      viewerStake: stake ? { yesStake: stake.yesStake, noStake: stake.noStake } : null,
+      viewerStakes,
     };
   });
 }
@@ -542,12 +723,13 @@ export async function getMarketDetail(marketId: string, userId: string) {
   const market = await prisma.market.findUnique({
     where: { id: marketId },
     include: {
+      outcomes: { orderBy: { sortOrder: "asc" } },
       poolStakes: {
         include: { user: { select: { name: true } } },
         orderBy: { updatedAt: "desc" },
       },
       bets: {
-        orderBy: { createdAt: "asc" },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         include: { user: { select: { name: true } } },
       },
       comments: {
@@ -561,7 +743,7 @@ export async function getMarketDetail(marketId: string, userId: string) {
         select: { userId: true, type: true, amount: true },
       },
       resolution: true,
-      _count: { select: { poolStakes: true, bets: true } },
+      _count: { select: { bets: true } },
     },
   });
 
@@ -569,67 +751,93 @@ export async function getMarketDetail(marketId: string, userId: string) {
     return null;
   }
 
-  const odds = getMarketOdds(market);
+  const odds = getMarketOdds(market.outcomes);
+  const outcomeById = new Map(odds.outcomes.map((outcome) => [outcome.id, outcome]));
   const openedAt = market.openedAt ?? market.createdAt;
 
+  // full replay, ordered [createdAt, id] — bets are already loaded here
+  const frames = replayProbabilities(market.outcomes, market.bets);
   const oddsHistory = [
-    { t: openedAt.getTime(), p: 0.5 },
-    ...market.bets.map((bet) => {
-      const total = bet.yesPoolAfter + bet.noPoolAfter;
-      return { t: bet.createdAt.getTime(), p: total > 0 ? bet.yesPoolAfter / total : 0.5 };
-    }),
+    { t: openedAt.getTime(), probs: frames[0] },
+    ...market.bets.map((bet, index) => ({ t: bet.createdAt.getTime(), probs: frames[index + 1] })),
   ];
 
   const activity = [...market.bets]
     .reverse()
     .slice(0, 30)
-    .map((bet) => {
-      const total = bet.yesPoolAfter + bet.noPoolAfter;
-      return {
-        id: bet.id,
-        userName: bet.user.name,
-        side: bet.side,
-        amount: bet.amount,
-        probabilityAfter: total > 0 ? bet.yesPoolAfter / total : 0.5,
-        createdAt: bet.createdAt,
-      };
-    });
+    .map((bet) => ({
+      id: bet.id,
+      userName: bet.user.name,
+      outcomeLabel: outcomeById.get(bet.outcomeId)?.label ?? "?",
+      outcomeColor: outcomeById.get(bet.outcomeId)?.color ?? "blue",
+      amount: bet.amount,
+      probabilityAfter: bet.totalPoolAfter > 0 ? bet.outcomePoolAfter / bet.totalPoolAfter : 0,
+      createdAt: bet.createdAt,
+    }));
 
   const settlementByUser = new Map<string, number>();
   for (const entry of market.ledgerEntries) {
     settlementByUser.set(entry.userId, (settlementByUser.get(entry.userId) ?? 0) + entry.amount);
   }
 
-  const positions = market.poolStakes
-    .filter((stake) => stake.yesStake > 0 || stake.noStake > 0)
-    .map((stake) => {
-      const staked = stake.yesStake + stake.noStake;
-      const settled = settlementByUser.get(stake.userId) ?? 0;
+  const isCanceled = market.status === MarketStatus.CANCELED;
+  const isResolved = market.status === MarketStatus.RESOLVED;
+
+  const byUser = new Map<
+    string,
+    { userId: string; name: string; stakes: Map<string, number>; staked: number }
+  >();
+  for (const stake of market.poolStakes) {
+    if (stake.amount === 0) {
+      continue;
+    }
+    const row = byUser.get(stake.userId) ?? {
+      userId: stake.userId,
+      name: stake.user.name,
+      stakes: new Map<string, number>(),
+      staked: 0,
+    };
+    row.stakes.set(stake.outcomeId, (row.stakes.get(stake.outcomeId) ?? 0) + stake.amount);
+    row.staked += stake.amount;
+    byUser.set(stake.userId, row);
+  }
+
+  const positions = [...byUser.values()]
+    .map((row) => {
+      const settled = settlementByUser.get(row.userId) ?? 0;
       let resultLabel: string | null = null;
 
-      if (market.finalOutcome === MarketOutcome.CANCELED) {
+      if (isCanceled) {
         resultLabel = "Refunded";
-      } else if (market.finalOutcome === MarketOutcome.YES) {
-        resultLabel = stake.yesStake > 0 ? "Won" : "Lost";
-      } else if (market.finalOutcome === MarketOutcome.NO) {
-        resultLabel = stake.noStake > 0 ? "Won" : "Lost";
+      } else if (isResolved && market.winningOutcomeId) {
+        resultLabel = (row.stakes.get(market.winningOutcomeId) ?? 0) > 0 ? "Won" : "Lost";
       }
 
       return {
-        userId: stake.userId,
-        name: stake.user.name,
-        yesStake: stake.yesStake,
-        noStake: stake.noStake,
-        staked,
-        potShare: odds.pot > 0 ? staked / odds.pot : 0,
+        userId: row.userId,
+        name: row.name,
+        stakes: odds.outcomes.map((outcome) => ({
+          outcomeId: outcome.id,
+          amount: row.stakes.get(outcome.id) ?? 0,
+        })),
+        staked: row.staked,
+        potShare: odds.pot > 0 ? row.staked / odds.pot : 0,
         settlementAmount: settled,
-        profit: settled - staked,
+        profit: settled - row.staked,
         resultLabel,
       };
     })
     .sort((a, b) => b.staked - a.staked || a.name.localeCompare(b.name));
 
-  const viewerStake = market.poolStakes.find((stake) => stake.userId === userId) ?? null;
+  const viewerStakes = odds.outcomes
+    .map((outcome) => ({
+      outcomeId: outcome.id,
+      amount:
+        market.poolStakes.find(
+          (stake) => stake.userId === userId && stake.outcomeId === outcome.id,
+        )?.amount ?? 0,
+    }))
+    .filter((stake) => stake.amount > 0);
 
   return {
     id: market.id,
@@ -640,15 +848,18 @@ export async function getMarketDetail(marketId: string, userId: string) {
     resolveTime: market.resolveTime,
     resolutionSource: market.resolutionSource,
     status: market.status,
-    finalOutcome: market.finalOutcome,
-    yesPool: market.yesPool,
-    noPool: market.noPool,
+    winningOutcomeId: market.winningOutcomeId,
+    winningOutcome: market.winningOutcomeId
+      ? (outcomeById.get(market.winningOutcomeId) ?? null)
+      : null,
     rakeBps: market.rakeBps,
     maxStakePerUser: market.maxStakePerUser,
     openedAt: market.openedAt,
     createdAt: market.createdAt,
-    ...odds,
-    participantCount: market._count.poolStakes,
+    outcomes: odds.outcomes,
+    leader: odds.leader,
+    pot: odds.pot,
+    participantCount: byUser.size,
     betCount: market._count.bets,
     oddsHistory,
     activity,
@@ -661,9 +872,7 @@ export async function getMarketDetail(marketId: string, userId: string) {
       createdAt: comment.createdAt,
     })),
     resolution: market.resolution,
-    viewerStake: viewerStake
-      ? { yesStake: viewerStake.yesStake, noStake: viewerStake.noStake }
-      : null,
+    viewerStakes,
   };
 }
 
@@ -671,48 +880,54 @@ export async function getActiveStakes(userId: string) {
   const stakes = await prisma.poolStake.findMany({
     where: {
       userId,
-      OR: [{ yesStake: { gt: 0 } }, { noStake: { gt: 0 } }],
+      amount: { gt: 0 },
       market: { status: { in: [MarketStatus.OPEN, MarketStatus.CLOSED] } },
     },
-    include: { market: true },
+    include: { market: { include: { outcomes: { orderBy: { sortOrder: "asc" } } } } },
     orderBy: { updatedAt: "desc" },
   });
 
-  return stakes.map((stake) => {
-    const odds = getMarketOdds(stake.market);
+  const byMarket = new Map<string, typeof stakes>();
+  for (const stake of stakes) {
+    const list = byMarket.get(stake.marketId) ?? [];
+    list.push(stake);
+    byMarket.set(stake.marketId, list);
+  }
 
-    const yesIfWon =
-      stake.yesStake > 0
-        ? estimatePayout({
-            stake: stake.yesStake,
-            winningPool: stake.market.yesPool,
-            losingPool: stake.market.noPool,
-            rakeBps: stake.market.rakeBps,
-          })
-        : 0;
-    const noIfWon =
-      stake.noStake > 0
-        ? estimatePayout({
-            stake: stake.noStake,
-            winningPool: stake.market.noPool,
-            losingPool: stake.market.yesPool,
-            rakeBps: stake.market.rakeBps,
-          })
-        : 0;
+  return [...byMarket.values()].map((marketStakes) => {
+    const market = marketStakes[0].market;
+    const odds = getMarketOdds(market.outcomes);
+    const outcomeById = new Map(odds.outcomes.map((outcome) => [outcome.id, outcome]));
+
+    const positions = marketStakes
+      .map((stake) => {
+        const outcome = outcomeById.get(stake.outcomeId)!;
+        return {
+          outcomeId: stake.outcomeId,
+          label: outcome.label,
+          color: outcome.color,
+          amount: stake.amount,
+          probability: outcome.probability,
+          ifWon: estimatePayout({
+            stake: stake.amount,
+            winningPool: outcome.pool,
+            losingPool: odds.pot - outcome.pool,
+            rakeBps: market.rakeBps,
+          }),
+        };
+      })
+      .sort((a, b) => b.amount - a.amount);
 
     return {
-      marketId: stake.marketId,
-      title: stake.market.title,
-      category: stake.market.category,
-      status: stake.market.status,
-      closeTime: stake.market.closeTime,
-      yesStake: stake.yesStake,
-      noStake: stake.noStake,
-      staked: stake.yesStake + stake.noStake,
-      yesProbability: odds.yesProbability,
-      noProbability: odds.noProbability,
-      yesIfWon,
-      noIfWon,
+      marketId: market.id,
+      title: market.title,
+      category: market.category,
+      status: market.status,
+      closeTime: market.closeTime,
+      leader: odds.leader,
+      positions,
+      staked: positions.reduce((sum, position) => sum + position.amount, 0),
+      ifAllWon: positions.reduce((sum, position) => sum + position.ifWon, 0),
     };
   });
 }
@@ -721,12 +936,13 @@ export async function getResolvedStakes(userId: string) {
   const stakes = await prisma.poolStake.findMany({
     where: {
       userId,
-      OR: [{ yesStake: { gt: 0 } }, { noStake: { gt: 0 } }],
+      amount: { gt: 0 },
       market: { status: { in: [MarketStatus.RESOLVED, MarketStatus.CANCELED] } },
     },
     include: {
       market: {
         include: {
+          outcomes: { orderBy: { sortOrder: "asc" } },
           ledgerEntries: {
             where: {
               userId,
@@ -740,30 +956,35 @@ export async function getResolvedStakes(userId: string) {
     orderBy: { updatedAt: "desc" },
   });
 
-  return stakes.map((stake) => {
-    const staked = stake.yesStake + stake.noStake;
-    const settled = sumLedgerAmounts(stake.market.ledgerEntries);
-    const outcome = stake.market.finalOutcome;
-    const won =
-      outcome === MarketOutcome.YES
-        ? stake.yesStake > 0
-        : outcome === MarketOutcome.NO
-          ? stake.noStake > 0
-          : null;
+  const byMarket = new Map<string, typeof stakes>();
+  for (const stake of stakes) {
+    const list = byMarket.get(stake.marketId) ?? [];
+    list.push(stake);
+    byMarket.set(stake.marketId, list);
+  }
+
+  return [...byMarket.values()].map((marketStakes) => {
+    const market = marketStakes[0].market;
+    const staked = marketStakes.reduce((sum, stake) => sum + stake.amount, 0);
+    const settled = sumLedgerAmounts(market.ledgerEntries);
+    const canceled = market.status === MarketStatus.CANCELED;
+    const winningOutcome = market.outcomes.find((outcome) => outcome.id === market.winningOutcomeId);
 
     return {
-      marketId: stake.marketId,
-      title: stake.market.title,
-      category: stake.market.category,
-      status: stake.market.status,
-      outcome,
-      resolvedAt: stake.market.resolvedAt ?? stake.market.canceledAt,
-      yesStake: stake.yesStake,
-      noStake: stake.noStake,
+      marketId: market.id,
+      title: market.title,
+      category: market.category,
+      status: market.status,
+      canceled,
+      winningLabel: winningOutcome?.label ?? null,
+      winningColor: winningOutcome?.color ?? null,
+      resolvedAt: market.resolvedAt ?? market.canceledAt,
       staked,
       settled,
       profit: settled - staked,
-      won,
+      won: canceled
+        ? null
+        : marketStakes.some((stake) => stake.outcomeId === market.winningOutcomeId),
     };
   });
 }
@@ -771,7 +992,10 @@ export async function getResolvedStakes(userId: string) {
 export async function getBetHistory(userId: string) {
   return prisma.bet.findMany({
     where: { userId },
-    include: { market: { select: { id: true, title: true, status: true, finalOutcome: true } } },
+    include: {
+      market: { select: { id: true, title: true, status: true } },
+      outcome: { select: { label: true, color: true } },
+    },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -783,22 +1007,21 @@ export async function getActivityFeed(limit = 30) {
     include: {
       user: { select: { name: true } },
       market: { select: { id: true, title: true } },
+      outcome: { select: { label: true, color: true } },
     },
   });
 
-  return bets.map((bet) => {
-    const total = bet.yesPoolAfter + bet.noPoolAfter;
-    return {
-      id: bet.id,
-      userName: bet.user.name,
-      side: bet.side,
-      amount: bet.amount,
-      probabilityAfter: total > 0 ? bet.yesPoolAfter / total : 0.5,
-      marketId: bet.market.id,
-      marketTitle: bet.market.title,
-      createdAt: bet.createdAt,
-    };
-  });
+  return bets.map((bet) => ({
+    id: bet.id,
+    userName: bet.user.name,
+    outcomeLabel: bet.outcome.label,
+    outcomeColor: bet.outcome.color,
+    amount: bet.amount,
+    probabilityAfter: bet.totalPoolAfter > 0 ? bet.outcomePoolAfter / bet.totalPoolAfter : 0,
+    marketId: bet.market.id,
+    marketTitle: bet.market.title,
+    createdAt: bet.createdAt,
+  }));
 }
 
 export async function getLeaderboard() {
@@ -816,7 +1039,7 @@ export async function getLeaderboard() {
 
   const openStakes = await prisma.poolStake.findMany({
     where: { market: { status: { in: [MarketStatus.OPEN, MarketStatus.CLOSED] } } },
-    select: { userId: true, yesStake: true, noStake: true },
+    select: { userId: true, amount: true },
   });
 
   const sumsByUser = new Map<string, Map<LedgerEntryType, number>>();
@@ -828,10 +1051,7 @@ export async function getLeaderboard() {
 
   const atRiskByUser = new Map<string, number>();
   for (const stake of openStakes) {
-    atRiskByUser.set(
-      stake.userId,
-      (atRiskByUser.get(stake.userId) ?? 0) + stake.yesStake + stake.noStake,
-    );
+    atRiskByUser.set(stake.userId, (atRiskByUser.get(stake.userId) ?? 0) + stake.amount);
   }
 
   const rows = users.map((user) => {
@@ -867,22 +1087,25 @@ export async function getLeaderboard() {
 export async function getAdminMarkets() {
   const markets = await prisma.market.findMany({
     include: {
-      _count: { select: { bets: true, poolStakes: true } },
+      outcomes: { orderBy: { sortOrder: "asc" } },
+      poolStakes: { where: { amount: { gt: 0 } }, select: { userId: true } },
+      _count: { select: { bets: true } },
     },
     orderBy: [{ status: "asc" }, { createdAt: "desc" }],
   });
 
   return markets.map((market) => ({
     ...market,
-    ...getMarketOdds(market),
+    ...getMarketOdds(market.outcomes),
     betCount: market._count.bets,
-    participantCount: market._count.poolStakes,
+    participantCount: new Set(market.poolStakes.map((stake) => stake.userId)).size,
   }));
 }
 
 export async function listProposals() {
   return prisma.market.findMany({
     where: { status: MarketStatus.PROPOSED },
+    include: { outcomes: { orderBy: { sortOrder: "asc" } } },
     orderBy: { createdAt: "asc" },
   });
 }
@@ -891,10 +1114,14 @@ export async function getAdminMarketDetail(marketId: string) {
   const market = await prisma.market.findUnique({
     where: { id: marketId },
     include: {
+      outcomes: { orderBy: { sortOrder: "asc" } },
       resolution: true,
       bets: {
         orderBy: { createdAt: "desc" },
-        include: { user: { select: { name: true, email: true } } },
+        include: {
+          user: { select: { name: true, email: true } },
+          outcome: { select: { label: true, color: true } },
+        },
       },
       poolStakes: {
         include: { user: { select: { name: true, email: true } } },
@@ -913,28 +1140,64 @@ export async function getAdminMarketDetail(marketId: string) {
     return null;
   }
 
+  const odds = getMarketOdds(market.outcomes);
+
   const settlementByUser = new Map<string, number>();
   for (const entry of market.ledgerEntries) {
     settlementByUser.set(entry.userId, (settlementByUser.get(entry.userId) ?? 0) + entry.amount);
   }
 
+  type StakeRow = {
+    userId: string;
+    name: string;
+    email: string;
+    stakes: Map<string, number>;
+    staked: number;
+  };
+  const byUser = new Map<string, StakeRow>();
+  for (const stake of market.poolStakes) {
+    if (stake.amount === 0) {
+      continue;
+    }
+    const row = byUser.get(stake.userId) ?? {
+      userId: stake.userId,
+      name: stake.user.name,
+      email: stake.user.email,
+      stakes: new Map<string, number>(),
+      staked: 0,
+    };
+    row.stakes.set(stake.outcomeId, (row.stakes.get(stake.outcomeId) ?? 0) + stake.amount);
+    row.staked += stake.amount;
+    byUser.set(stake.userId, row);
+  }
+
+  const stakeRows = [...byUser.values()]
+    .map((row) => ({
+      userId: row.userId,
+      name: row.name,
+      email: row.email,
+      staked: row.staked,
+      stakes: odds.outcomes.map((outcome) => ({
+        outcomeId: outcome.id,
+        label: outcome.label,
+        color: outcome.color,
+        amount: row.stakes.get(outcome.id) ?? 0,
+      })),
+      settlementAmount: settlementByUser.get(row.userId) ?? 0,
+      profit: (settlementByUser.get(row.userId) ?? 0) - row.staked,
+    }))
+    .sort((a, b) => b.staked - a.staked);
+
   return {
     ...market,
-    ...getMarketOdds(market),
+    ...getMarketOdds(market.outcomes),
+    winningOutcome: market.winningOutcomeId
+      ? (market.outcomes.find((outcome) => outcome.id === market.winningOutcomeId) ?? null)
+      : null,
+    stakeRows,
     settlementRows:
       market.status === MarketStatus.RESOLVED || market.status === MarketStatus.CANCELED
-        ? market.poolStakes
-            .filter((stake) => stake.yesStake > 0 || stake.noStake > 0)
-            .map((stake) => ({
-              userId: stake.userId,
-              name: stake.user.name,
-              email: stake.user.email,
-              yesStake: stake.yesStake,
-              noStake: stake.noStake,
-              settlementAmount: settlementByUser.get(stake.userId) ?? 0,
-              profit: (settlementByUser.get(stake.userId) ?? 0) - stake.yesStake - stake.noStake,
-            }))
-            .sort((a, b) => b.settlementAmount - a.settlementAmount)
+        ? stakeRows.sort((a, b) => b.settlementAmount - a.settlementAmount)
         : [],
   };
 }

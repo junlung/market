@@ -6,35 +6,36 @@ import {
   computeSettlement,
   estimatePayout,
   getOdds,
-  type StakeRow,
+  type OutcomeStake,
 } from "@/lib/parimutuel";
 
 describe("getOdds", () => {
-  it("returns 50/50 with null multipliers for an empty market", () => {
-    const odds = getOdds({ yesPool: 0, noPool: 0 });
-    expect(odds.yesProbability).toBe(0.5);
-    expect(odds.noProbability).toBe(0.5);
-    expect(odds.yesMultiplier).toBeNull();
-    expect(odds.noMultiplier).toBeNull();
+  it("returns the uniform 1/N prior with null multipliers for an empty market", () => {
+    const binary = getOdds([0, 0]);
+    expect(binary.probabilities).toEqual([0.5, 0.5]);
+    expect(binary.multipliers).toEqual([null, null]);
+
+    const triple = getOdds([0, 0, 0]);
+    expect(triple.probabilities).toEqual([1 / 3, 1 / 3, 1 / 3]);
   });
 
   it("computes implied probability from pool sizes", () => {
-    const odds = getOdds({ yesPool: 300, noPool: 100 });
-    expect(odds.yesProbability).toBe(0.75);
-    expect(odds.noProbability).toBe(0.25);
-    expect(odds.yesMultiplier).toBeCloseTo(4 / 3);
-    expect(odds.noMultiplier).toBe(4);
+    const odds = getOdds([300, 100]);
+    expect(odds.probabilities).toEqual([0.75, 0.25]);
+    expect(odds.multipliers[0]).toBeCloseTo(4 / 3);
+    expect(odds.multipliers[1]).toBe(4);
   });
 
-  it("handles a one-sided market", () => {
-    const odds = getOdds({ yesPool: 200, noPool: 0 });
-    expect(odds.yesProbability).toBe(1);
-    expect(odds.noMultiplier).toBeNull();
+  it("handles unbacked outcomes in a multi market", () => {
+    const odds = getOdds([200, 0, 100]);
+    expect(odds.probabilities).toEqual([2 / 3, 0, 1 / 3]);
+    expect(odds.multipliers[1]).toBeNull();
   });
 
-  it("rejects non-integer pools", () => {
-    expect(() => getOdds({ yesPool: 1.5, noPool: 0 })).toThrow();
-    expect(() => getOdds({ yesPool: -1, noPool: 0 })).toThrow();
+  it("rejects fewer than 2 pools and non-integer pools", () => {
+    expect(() => getOdds([100])).toThrow();
+    expect(() => getOdds([1.5, 0])).toThrow();
+    expect(() => getOdds([-1, 0])).toThrow();
   });
 });
 
@@ -57,14 +58,14 @@ describe("computeRake", () => {
 });
 
 describe("computeSettlement", () => {
-  it("settles a simple two-user market", () => {
+  it("settles a simple two-user binary market", () => {
     // Casey alone on NO wins the whole YES pool minus rake.
-    const stakes: StakeRow[] = [
-      { userId: "alex", yesStake: 300, noStake: 0 },
-      { userId: "casey", yesStake: 0, noStake: 100 },
+    const stakes: OutcomeStake[] = [
+      { userId: "alex", outcomeId: "yes", amount: 300 },
+      { userId: "casey", outcomeId: "no", amount: 100 },
     ];
 
-    const result = computeSettlement(stakes, "NO", 500);
+    const result = computeSettlement(stakes, "no", 500);
     expect(result.mode).toBe("NORMAL");
     expect(result.winningPool).toBe(100);
     expect(result.losingPool).toBe(300);
@@ -74,17 +75,33 @@ describe("computeSettlement", () => {
     expect(checkConservation(result)).toBe(true);
   });
 
+  it("settles a three-outcome market — every losing pool feeds the winners", () => {
+    const stakes: OutcomeStake[] = [
+      { userId: "alex", outcomeId: "arsenal", amount: 100 },
+      { userId: "blair", outcomeId: "draw", amount: 60 },
+      { userId: "casey", outcomeId: "chelsea", amount: 140 },
+    ];
+
+    // draw wins: W = 60, L = 240, rake = 12, distributable = 228
+    const result = computeSettlement(stakes, "draw", 500);
+    expect(result.winningPool).toBe(60);
+    expect(result.losingPool).toBe(240);
+    expect(result.rake).toBe(12);
+    expect(result.payouts).toEqual([{ userId: "blair", amount: 288, kind: "PAYOUT" }]);
+    expect(checkConservation(result)).toBe(true);
+  });
+
   it("splits pro-rata among multiple winners and burns dust", () => {
-    const stakes: StakeRow[] = [
-      { userId: "alex", yesStake: 120, noStake: 0 },
-      { userId: "blair", yesStake: 0, noStake: 200 },
-      { userId: "casey", yesStake: 30, noStake: 0 },
-      { userId: "dana", yesStake: 0, noStake: 47 },
+    const stakes: OutcomeStake[] = [
+      { userId: "alex", outcomeId: "yes", amount: 120 },
+      { userId: "blair", outcomeId: "no", amount: 200 },
+      { userId: "casey", outcomeId: "yes", amount: 30 },
+      { userId: "dana", outcomeId: "no", amount: 47 },
     ];
 
     // L = 247, rake = floor(247*0.05) = 12, distributable = 235, W = 150
     // alex: floor(120*235/150) = 188 ; casey: floor(30*235/150) = 47 ; dust = 0
-    const result = computeSettlement(stakes, "YES", 500);
+    const result = computeSettlement(stakes, "yes", 500);
     expect(result.rake).toBe(12);
     expect(result.payouts).toEqual([
       { userId: "alex", amount: 308, kind: "PAYOUT" },
@@ -95,54 +112,55 @@ describe("computeSettlement", () => {
   });
 
   it("produces dust when shares do not divide evenly", () => {
-    const stakes: StakeRow[] = [
-      { userId: "a", yesStake: 1, noStake: 0 },
-      { userId: "b", yesStake: 1, noStake: 0 },
-      { userId: "c", yesStake: 1, noStake: 0 },
-      { userId: "d", yesStake: 0, noStake: 100 },
+    const stakes: OutcomeStake[] = [
+      { userId: "a", outcomeId: "yes", amount: 1 },
+      { userId: "b", outcomeId: "yes", amount: 1 },
+      { userId: "c", outcomeId: "yes", amount: 1 },
+      { userId: "d", outcomeId: "no", amount: 100 },
     ];
 
     // rake = 5, distributable = 95, each winner floor(95/3) = 31, dust = 2
-    const result = computeSettlement(stakes, "YES", 500);
+    const result = computeSettlement(stakes, "yes", 500);
     expect(result.payouts.map((p) => p.amount)).toEqual([32, 32, 32]);
     expect(result.dust).toBe(2);
     expect(checkConservation(result)).toBe(true);
   });
 
-  it("never pays a winner less than their stake", () => {
-    const stakes: StakeRow[] = [
-      { userId: "tiny", yesStake: 1, noStake: 0 },
-      { userId: "whale", yesStake: 499, noStake: 0 },
-      { userId: "loser", yesStake: 0, noStake: 3 },
+  it("groups a user straddling winner and losers into one payout row", () => {
+    const stakes: OutcomeStake[] = [
+      { userId: "hedger", outcomeId: "arsenal", amount: 100 },
+      { userId: "hedger", outcomeId: "draw", amount: 50 },
+      { userId: "other", outcomeId: "chelsea", amount: 150 },
     ];
 
-    const result = computeSettlement(stakes, "YES", 500);
+    // arsenal wins: W = 100 (hedger), L = 200 (hedger's draw + other's chelsea)
+    // rake = 10, distributable = 190 → hedger gets 100 + 190 = 290, one row
+    const result = computeSettlement(stakes, "arsenal", 500);
+    expect(result.payouts).toEqual([{ userId: "hedger", amount: 290, kind: "PAYOUT" }]);
+    expect(checkConservation(result)).toBe(true);
+  });
+
+  it("never pays a winner less than their winning stake", () => {
+    const stakes: OutcomeStake[] = [
+      { userId: "tiny", outcomeId: "yes", amount: 1 },
+      { userId: "whale", outcomeId: "yes", amount: 499 },
+      { userId: "loser", outcomeId: "no", amount: 3 },
+    ];
+
+    const result = computeSettlement(stakes, "yes", 500);
     for (const payout of result.payouts) {
       const stake = stakes.find((s) => s.userId === payout.userId)!;
-      expect(payout.amount).toBeGreaterThanOrEqual(stake.yesStake);
+      expect(payout.amount).toBeGreaterThanOrEqual(stake.amount);
     }
   });
 
-  it("pays the winning-side stake of a both-sides bettor; losing side stays in L", () => {
-    const stakes: StakeRow[] = [
-      { userId: "hedger", yesStake: 100, noStake: 50 },
-      { userId: "other", yesStake: 0, noStake: 150 },
-    ];
-
-    // W = 100 (hedger YES), L = 200, rake = 10, distributable = 190
-    const result = computeSettlement(stakes, "YES", 500);
-    expect(result.payouts).toEqual([{ userId: "hedger", amount: 290, kind: "PAYOUT" }]);
-    expect(checkConservation(result)).toBe(true);
-    // hedging is strictly worse than not betting the losing side (290 < 100 + 50 + ...)
-  });
-
   it("refunds everyone with no rake when nobody backed the winner", () => {
-    const stakes: StakeRow[] = [
-      { userId: "alex", yesStake: 200, noStake: 0 },
-      { userId: "blair", yesStake: 100, noStake: 0 },
+    const stakes: OutcomeStake[] = [
+      { userId: "alex", outcomeId: "arsenal", amount: 200 },
+      { userId: "blair", outcomeId: "chelsea", amount: 100 },
     ];
 
-    const result = computeSettlement(stakes, "NO", 500);
+    const result = computeSettlement(stakes, "draw", 500);
     expect(result.mode).toBe("REFUND_ALL");
     expect(result.rake).toBe(0);
     expect(result.payouts).toEqual([
@@ -152,13 +170,13 @@ describe("computeSettlement", () => {
     expect(checkConservation(result)).toBe(true);
   });
 
-  it("returns exact stakes when the losing pool is empty", () => {
-    const stakes: StakeRow[] = [
-      { userId: "alex", yesStake: 200, noStake: 0 },
-      { userId: "blair", yesStake: 50, noStake: 0 },
+  it("returns exact stakes when every other pool is empty", () => {
+    const stakes: OutcomeStake[] = [
+      { userId: "alex", outcomeId: "yes", amount: 200 },
+      { userId: "blair", outcomeId: "yes", amount: 50 },
     ];
 
-    const result = computeSettlement(stakes, "YES", 500);
+    const result = computeSettlement(stakes, "yes", 500);
     expect(result.mode).toBe("NORMAL");
     expect(result.rake).toBe(0);
     expect(result.dust).toBe(0);
@@ -169,41 +187,42 @@ describe("computeSettlement", () => {
   });
 
   it("handles an empty market", () => {
-    const result = computeSettlement([], "YES", 500);
+    const result = computeSettlement([], "yes", 500);
     expect(result.mode).toBe("EMPTY");
     expect(result.payouts).toEqual([]);
     expect(result.totalIn).toBe(0);
   });
 
   it("is deterministic regardless of input order", () => {
-    const stakes: StakeRow[] = [
-      { userId: "zed", yesStake: 33, noStake: 0 },
-      { userId: "amy", yesStake: 67, noStake: 0 },
-      { userId: "mid", yesStake: 0, noStake: 101 },
+    const stakes: OutcomeStake[] = [
+      { userId: "zed", outcomeId: "yes", amount: 33 },
+      { userId: "amy", outcomeId: "yes", amount: 67 },
+      { userId: "mid", outcomeId: "no", amount: 101 },
     ];
 
-    const a = computeSettlement(stakes, "YES", 500);
-    const b = computeSettlement([...stakes].reverse(), "YES", 500);
+    const a = computeSettlement(stakes, "yes", 500);
+    const b = computeSettlement([...stakes].reverse(), "yes", 500);
     expect(a).toEqual(b);
     expect(a.payouts[0].userId).toBe("amy");
   });
 
   it("rejects fractional and negative stakes", () => {
     expect(() =>
-      computeSettlement([{ userId: "x", yesStake: 1.5, noStake: 0 }], "YES", 500),
+      computeSettlement([{ userId: "x", outcomeId: "yes", amount: 1.5 }], "yes", 500),
     ).toThrow();
     expect(() =>
-      computeSettlement([{ userId: "x", yesStake: -5, noStake: 0 }], "YES", 500),
+      computeSettlement([{ userId: "x", outcomeId: "yes", amount: -5 }], "yes", 500),
     ).toThrow();
   });
 });
 
 describe("computeCancelRefunds", () => {
-  it("refunds both sides of every stake", () => {
-    const stakes: StakeRow[] = [
-      { userId: "alex", yesStake: 120, noStake: 30 },
-      { userId: "blair", yesStake: 0, noStake: 75 },
-      { userId: "idle", yesStake: 0, noStake: 0 },
+  it("refunds every outcome of every stake in one row per user", () => {
+    const stakes: OutcomeStake[] = [
+      { userId: "alex", outcomeId: "arsenal", amount: 120 },
+      { userId: "alex", outcomeId: "draw", amount: 30 },
+      { userId: "blair", outcomeId: "chelsea", amount: 75 },
+      { userId: "idle", outcomeId: "arsenal", amount: 0 },
     ];
 
     const result = computeCancelRefunds(stakes);
@@ -222,14 +241,15 @@ describe("computeCancelRefunds", () => {
 
 describe("estimatePayout", () => {
   it("matches settlement for a single winner", () => {
-    // pools after my 100-point YES bet: yes 100 (all mine), no 300
+    // pools after my 100-point bet: mine 100 (all me), everything else 300
     const estimate = estimatePayout({ stake: 100, winningPool: 100, losingPool: 300, rakeBps: 500 });
     const settled = computeSettlement(
       [
-        { userId: "me", yesStake: 100, noStake: 0 },
-        { userId: "them", yesStake: 0, noStake: 300 },
+        { userId: "me", outcomeId: "a", amount: 100 },
+        { userId: "them", outcomeId: "b", amount: 200 },
+        { userId: "them2", outcomeId: "c", amount: 100 },
       ],
-      "YES",
+      "a",
       500,
     );
     expect(estimate).toBe(settled.payouts[0].amount);
@@ -259,20 +279,32 @@ describe("conservation fuzzing", () => {
     };
   }
 
-  it("holds conservation and payout floors across 2000 random markets", () => {
+  it("holds conservation and payout floors across 2000 random N-outcome markets", () => {
     const rand = mulberry32(0xf00d);
 
     for (let i = 0; i < 2000; i += 1) {
+      const outcomeCount = 2 + Math.floor(rand() * 5); // 2..6
+      const outcomes = Array.from({ length: outcomeCount }, (_, o) => `outcome-${o}`);
       const userCount = 1 + Math.floor(rand() * 40);
-      const stakes: StakeRow[] = Array.from({ length: userCount }, (_, u) => ({
-        userId: `user-${String(u).padStart(2, "0")}`,
-        yesStake: Math.floor(rand() * 501) * (rand() < 0.7 ? 1 : 0),
-        noStake: Math.floor(rand() * 501) * (rand() < 0.7 ? 1 : 0),
-      }));
-      const outcome = rand() < 0.5 ? "YES" : "NO";
+
+      // users can straddle any subset of outcomes
+      const stakes: OutcomeStake[] = [];
+      for (let u = 0; u < userCount; u += 1) {
+        for (const outcomeId of outcomes) {
+          if (rand() < 0.4) {
+            stakes.push({
+              userId: `user-${String(u).padStart(2, "0")}`,
+              outcomeId,
+              amount: Math.floor(rand() * 501),
+            });
+          }
+        }
+      }
+
+      const winner = outcomes[Math.floor(rand() * outcomeCount)];
       const rakeBps = Math.floor(rand() * 2001);
 
-      const result = computeSettlement(stakes, outcome, rakeBps);
+      const result = computeSettlement(stakes, winner, rakeBps);
 
       // exact conservation: every point in is accounted for
       expect(checkConservation(result)).toBe(true);
@@ -286,32 +318,41 @@ describe("conservation fuzzing", () => {
       expect(result.dust).toBeGreaterThanOrEqual(0);
 
       if (result.mode === "NORMAL") {
-        // winners never take home less than their winning stake
+        // winners never take home less than their winning stake — even when
+        // they also hold losing outcomes
         for (const payout of result.payouts) {
-          const row = stakes.find((s) => s.userId === payout.userId)!;
-          const stake = outcome === "YES" ? row.yesStake : row.noStake;
-          expect(payout.amount).toBeGreaterThanOrEqual(stake);
+          const winningStake = stakes
+            .filter((s) => s.userId === payout.userId && s.outcomeId === winner)
+            .reduce((sum, s) => sum + s.amount, 0);
+          expect(payout.amount).toBeGreaterThanOrEqual(winningStake);
         }
-        // dust is bounded by the number of winners (each floor loses < 1 point)
-        expect(result.dust).toBeLessThanOrEqual(result.payouts.length);
+        // dust is bounded by winners - 1 rounding losses of < 1 point each
+        expect(result.dust).toBeLessThanOrEqual(Math.max(result.payouts.length - 1, 0));
       }
 
       if (result.mode === "REFUND_ALL") {
         expect(result.rake).toBe(0);
         expect(result.totalOut).toBe(result.totalIn);
+        // one refund row per distinct staked user
+        const stakedUsers = new Set(stakes.filter((s) => s.amount > 0).map((s) => s.userId));
+        expect(result.payouts).toHaveLength(stakedUsers.size);
       }
     }
   });
 
-  it("cancel refunds conserve across 500 random markets", () => {
+  it("cancel refunds conserve across 500 random N-outcome markets", () => {
     const rand = mulberry32(0xbeef);
 
     for (let i = 0; i < 500; i += 1) {
-      const stakes: StakeRow[] = Array.from({ length: 1 + Math.floor(rand() * 20) }, (_, u) => ({
-        userId: `user-${u}`,
-        yesStake: Math.floor(rand() * 300),
-        noStake: Math.floor(rand() * 300),
-      }));
+      const outcomeCount = 2 + Math.floor(rand() * 5);
+      const stakes: OutcomeStake[] = [];
+      for (let u = 0; u < 1 + Math.floor(rand() * 20); u += 1) {
+        for (let o = 0; o < outcomeCount; o += 1) {
+          if (rand() < 0.5) {
+            stakes.push({ userId: `user-${u}`, outcomeId: `outcome-${o}`, amount: Math.floor(rand() * 300) });
+          }
+        }
+      }
 
       const result = computeCancelRefunds(stakes);
       expect(checkConservation(result)).toBe(true);

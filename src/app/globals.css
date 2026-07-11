@@ -20,6 +20,20 @@
   --no-bg: rgba(220, 38, 38, 0.1);
   --warn: #d97706;
   --resolved: #0284c7;
+
+  /* Outcome swatches — validated as an ordered set on the light surface
+     (dataviz six checks: lightness band, chroma floor, adjacent-pair CVD
+     ΔE ≥ 12, ≥ 3:1 contrast). Deal order for multi-outcome defaults:
+     blue → orange → purple → teal → amber → pink; green/red stay the
+     Yes/No preset pair (mirroring --yes/--no). */
+  --oc-blue: #2563eb;
+  --oc-orange: #ea580c;
+  --oc-purple: #7c3aed;
+  --oc-teal: #0d9488;
+  --oc-amber: #a16207;
+  --oc-pink: #ec4899;
+  --oc-green: #059669;
+  --oc-red: #dc2626;
 }
 
 .dark {
@@ -41,6 +55,16 @@
   --no-bg: rgba(239, 68, 68, 0.14);
   --warn: #f59e0b;
   --resolved: #38bdf8;
+
+  /* same ordered set re-stepped for the dark surface, validated separately */
+  --oc-blue: #3b82f6;
+  --oc-orange: #ea580c;
+  --oc-purple: #8b5cf6;
+  --oc-teal: #0a9187;
+  --oc-amber: #b45309;
+  --oc-pink: #ea549e;
+  --oc-green: #059669;
+  --oc-red: #ef4444;
 }
 
 @theme inline {

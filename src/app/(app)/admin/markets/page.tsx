@@ -88,7 +88,8 @@ export default async function AdminMarketsPage({
                     {market.title}
                   </Link>
                   <p className="mt-0.5 text-xs text-muted tabular-nums">
-                    {formatChance(market.yesProbability)} yes · {formatPoints(market.pot)} pt pot ·{" "}
+                    {formatChance(market.leader.probability)} {market.leader.label} ·{" "}
+                    {market.outcomes.length} outcomes · {formatPoints(market.pot)} pt pot ·{" "}
                     {market.betCount} bet{market.betCount === 1 ? "" : "s"} · closes{" "}
                     {formatDateTime(market.closeTime)}
                   </p>

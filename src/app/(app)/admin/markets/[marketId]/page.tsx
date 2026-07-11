@@ -6,6 +6,7 @@ import { marketStatusAction, updateMarketAction } from "@/app/actions/markets";
 import { MarketForm } from "@/components/admin/market-form";
 import { ProposalReview } from "@/components/admin/proposal-review";
 import { ResolveMarketForm, type SettlementPreview } from "@/components/admin/resolve-market-form";
+import { OutcomeDot } from "@/components/markets/outcome-dot";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -33,14 +34,18 @@ export default async function AdminMarketDetailPage({ params }: Props) {
 
   let previews: SettlementPreview[] = [];
   if (resolvable) {
-    const [yes, no] = await Promise.all([
-      previewSettlement(market.id, "YES"),
-      previewSettlement(market.id, "NO"),
-    ]);
-    previews = [
-      { outcome: "YES", rows: yes.rows, rake: yes.rake, dust: yes.dust },
-      { outcome: "NO", rows: no.rows, rake: no.rake, dust: no.dust },
-    ];
+    previews = await Promise.all(
+      market.outcomes.map(async (outcome) => {
+        const preview = await previewSettlement(market.id, outcome.id);
+        return {
+          outcomeId: outcome.id,
+          rows: preview.rows,
+          rake: preview.rake,
+          dust: preview.dust,
+          mode: preview.mode,
+        };
+      }),
+    );
   }
 
   return (
@@ -57,7 +62,11 @@ export default async function AdminMarketDetailPage({ params }: Props) {
 
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge label={market.status.toLowerCase()} />
-        {market.finalOutcome ? <StatusBadge label={market.finalOutcome.toLowerCase()} /> : null}
+        {market.status === MarketStatus.CANCELED ? (
+          <StatusBadge label="refunded" />
+        ) : market.winningOutcome ? (
+          <StatusBadge label={`won: ${market.winningOutcome.label}`} />
+        ) : null}
         <span className="text-xs text-faint">{market.category}</span>
         {market.reviewNote ? (
           <span className="text-xs text-muted">Review note: {market.reviewNote}</span>
@@ -65,14 +74,35 @@ export default async function AdminMarketDetailPage({ params }: Props) {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Implied chance" value={`${formatChance(market.yesProbability)} yes`} />
         <StatCard
-          label="Pools"
-          value={`${formatPoints(market.yesPool)} / ${formatPoints(market.noPool)}`}
-          hint="Yes / No points"
+          label="Leading"
+          value={`${formatChance(market.leader.probability)} ${market.leader.label}`}
+        />
+        <StatCard
+          label="Pot"
+          value={`${formatPoints(market.pot)} pts`}
+          hint={`${market.outcomes.length} outcomes`}
         />
         <StatCard label="Closes" value={formatDateTime(market.closeTime)} />
         <StatCard label="Resolves" value={formatDateTime(market.resolveTime)} />
+      </div>
+
+      <div className="rounded-xl border border-border bg-surface p-4">
+        <h2 className="text-sm font-semibold">Pools</h2>
+        <div className="mt-3 space-y-1.5 text-sm">
+          {market.outcomes.map((outcome) => (
+            <p key={outcome.id} className="flex items-center justify-between gap-2 tabular-nums">
+              <span className="flex min-w-0 items-center gap-2">
+                <OutcomeDot color={outcome.color} />
+                <span className="truncate font-medium">{outcome.label}</span>
+                {market.winningOutcomeId === outcome.id ? (
+                  <span className="text-xs font-semibold text-yes">winner</span>
+                ) : null}
+              </span>
+              <span className="shrink-0 text-muted">{formatPoints(outcome.pool)} pts</span>
+            </p>
+          ))}
+        </div>
       </div>
 
       {market.status === MarketStatus.PROPOSED ? (
@@ -117,6 +147,10 @@ export default async function AdminMarketDetailPage({ params }: Props) {
                 closeTime: market.closeTime,
                 resolveTime: market.resolveTime,
                 resolutionSource: market.resolutionSource,
+                outcomes: market.outcomes.map((outcome) => ({
+                  label: outcome.label,
+                  color: outcome.color,
+                })),
                 maxStakePerUser: market.maxStakePerUser,
                 rakeBps: market.rakeBps,
               }}
@@ -129,19 +163,25 @@ export default async function AdminMarketDetailPage({ params }: Props) {
 
           <div className="rounded-xl border border-border bg-surface p-4">
             <h2 className="text-sm font-semibold">Stakes</h2>
-            {market.poolStakes.length === 0 ? (
+            {market.stakeRows.length === 0 ? (
               <p className="mt-2 text-sm text-muted">No stakes yet.</p>
             ) : (
               <div className="mt-3 divide-y divide-border">
-                {market.poolStakes.map((stake) => (
-                  <div key={stake.id} className="flex items-center justify-between py-2 text-sm">
-                    <div>
-                      <p className="font-medium">{stake.user.name}</p>
-                      <p className="text-xs text-faint">{stake.user.email}</p>
+                {market.stakeRows.map((row) => (
+                  <div key={row.userId} className="flex items-center justify-between gap-4 py-2 text-sm">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{row.name}</p>
+                      <p className="truncate text-xs text-faint">{row.email}</p>
                     </div>
-                    <div className="text-right text-xs tabular-nums">
-                      <p className="text-yes">YES {formatPoints(stake.yesStake)}</p>
-                      <p className="text-no">NO {formatPoints(stake.noStake)}</p>
+                    <div className="shrink-0 space-y-0.5 text-right text-xs tabular-nums">
+                      {row.stakes
+                        .filter((stake) => stake.amount > 0)
+                        .map((stake) => (
+                          <p key={stake.outcomeId} className="flex items-center justify-end gap-1.5">
+                            <OutcomeDot color={stake.color} />
+                            {stake.label} {formatPoints(stake.amount)}
+                          </p>
+                        ))}
                     </div>
                   </div>
                 ))}
@@ -153,13 +193,15 @@ export default async function AdminMarketDetailPage({ params }: Props) {
             <div className="rounded-xl border border-border bg-surface p-4 text-sm">
               <h2 className="text-sm font-semibold">Settlement audit</h2>
               <dl className="mt-2 space-y-1 text-xs tabular-nums">
-                <div className="flex justify-between">
-                  <dt className="text-muted">Final pools (yes/no)</dt>
-                  <dd>
-                    {formatPoints(market.resolution.yesPoolFinal)} /{" "}
-                    {formatPoints(market.resolution.noPoolFinal)}
-                  </dd>
-                </div>
+                {market.outcomes.map((outcome) => (
+                  <div key={outcome.id} className="flex justify-between">
+                    <dt className="flex items-center gap-1.5 text-muted">
+                      <OutcomeDot color={outcome.color} />
+                      Final pool — {outcome.label}
+                    </dt>
+                    <dd>{formatPoints(outcome.poolFinal ?? outcome.pool)}</dd>
+                  </div>
+                ))}
                 <div className="flex justify-between">
                   <dt className="text-muted">Paid out</dt>
                   <dd>{formatPoints(market.resolution.totalPaidOut)}</dd>
@@ -175,7 +217,7 @@ export default async function AdminMarketDetailPage({ params }: Props) {
                 <div className="flex justify-between border-t border-border pt-1 font-medium">
                   <dt>Conservation</dt>
                   <dd>
-                    {market.resolution.yesPoolFinal + market.resolution.noPoolFinal ===
+                    {market.outcomes.reduce((sum, outcome) => sum + (outcome.poolFinal ?? 0), 0) ===
                     market.resolution.totalPaidOut +
                       market.resolution.rakeAmount +
                       market.resolution.dustAmount
@@ -193,8 +235,7 @@ export default async function AdminMarketDetailPage({ params }: Props) {
                 <thead>
                   <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-faint">
                     <th className="px-4 py-2.5 font-medium">Player</th>
-                    <th className="px-4 py-2.5 text-right font-medium">Yes</th>
-                    <th className="px-4 py-2.5 text-right font-medium">No</th>
+                    <th className="px-4 py-2.5 font-medium">Position</th>
                     <th className="px-4 py-2.5 text-right font-medium">Paid</th>
                     <th className="px-4 py-2.5 text-right font-medium">P/L</th>
                   </tr>
@@ -203,8 +244,18 @@ export default async function AdminMarketDetailPage({ params }: Props) {
                   {market.settlementRows.map((row) => (
                     <tr key={row.userId}>
                       <td className="px-4 py-2.5 font-medium">{row.name}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">{formatPoints(row.yesStake)}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">{formatPoints(row.noStake)}</td>
+                      <td className="px-4 py-2.5">
+                        <span className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular-nums">
+                          {row.stakes
+                            .filter((stake) => stake.amount > 0)
+                            .map((stake) => (
+                              <span key={stake.outcomeId} className="inline-flex items-center gap-1.5">
+                                <OutcomeDot color={stake.color} />
+                                {formatPoints(stake.amount)} on {stake.label}
+                              </span>
+                            ))}
+                        </span>
+                      </td>
                       <td className="px-4 py-2.5 text-right tabular-nums">
                         {formatPoints(row.settlementAmount)}
                       </td>
@@ -229,6 +280,12 @@ export default async function AdminMarketDetailPage({ params }: Props) {
             <ResolveMarketForm
               marketId={market.id}
               resolutionSource={market.resolutionSource}
+              outcomes={market.outcomes.map((outcome) => ({
+                id: outcome.id,
+                label: outcome.label,
+                color: outcome.color,
+                pool: outcome.pool,
+              }))}
               previews={previews}
             />
           ) : null}

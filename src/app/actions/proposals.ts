@@ -31,6 +31,9 @@ export async function proposeMarketAction(_: MarketFormState, formData: FormData
   const session = await requireSession();
   await ensureWeeklyAllowance(session.user.id);
 
+  const labels = formData.getAll("outcomeLabel").map(String);
+  const colors = formData.getAll("outcomeColor").map(String);
+
   const parsed = proposeMarketSchema.safeParse({
     title: formData.get("title"),
     description: formData.get("description"),
@@ -38,6 +41,7 @@ export async function proposeMarketAction(_: MarketFormState, formData: FormData
     closeTime: formData.get("closeTime"),
     resolveTime: formData.get("resolveTime"),
     resolutionSource: formData.get("resolutionSource"),
+    outcomes: labels.map((label, index) => ({ label, color: colors[index] ?? "" })),
   });
 
   if (!parsed.success) {
@@ -55,6 +59,7 @@ export async function proposeMarketAction(_: MarketFormState, formData: FormData
         resolveTime: new Date(parsed.data.resolveTime),
         resolutionSource: parsed.data.resolutionSource,
       },
+      outcomes: parsed.data.outcomes,
     });
     revalidateProposalViews();
     return { success: "Proposal submitted — an admin will review it." };

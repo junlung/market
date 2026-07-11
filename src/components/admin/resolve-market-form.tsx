@@ -2,80 +2,111 @@
 
 import { useActionState, useState } from "react";
 import clsx from "clsx";
+import { TriangleAlert } from "lucide-react";
 import { cancelMarketAction, resolveMarketAction } from "@/app/actions/markets";
 import type { ActionResult } from "@/lib/server/market-service";
+import { outcomeColorBg, outcomeColorVar } from "@/lib/outcome-colors";
 import { Button } from "@/components/ui/button";
 import { FieldError, Input, Label, Textarea } from "@/components/ui/input";
 import { formatPoints, formatSignedPoints } from "@/lib/format";
 
 const initialState: ActionResult = {};
 
+export type ResolveOutcome = {
+  id: string;
+  label: string;
+  color: string;
+  pool: number;
+};
+
 export type SettlementPreview = {
-  outcome: "YES" | "NO";
+  outcomeId: string;
   rows: Array<{
     userId: string;
     name: string;
-    yesStake: number;
-    noStake: number;
+    staked: number;
     payout: number;
     profit: number;
   }>;
   rake: number;
   dust: number;
+  mode: "NORMAL" | "REFUND_ALL" | "EMPTY";
 };
 
 export function ResolveMarketForm({
   marketId,
   resolutionSource,
+  outcomes,
   previews,
 }: {
   marketId: string;
   resolutionSource: string;
-  /** Server-computed dry-run settlements for both outcomes. */
+  outcomes: ResolveOutcome[];
+  /** Server-computed dry-run settlements, one per outcome. */
   previews: SettlementPreview[];
 }) {
   const [resolveState, resolveAction, resolving] = useActionState(resolveMarketAction, initialState);
   const [cancelState, cancelAction, canceling] = useActionState(cancelMarketAction, initialState);
-  const [outcome, setOutcome] = useState<"YES" | "NO">("YES");
+  const [winningOutcomeId, setWinningOutcomeId] = useState<string>(outcomes[0].id);
   const [showDanger, setShowDanger] = useState(false);
 
-  const preview = previews.find((p) => p.outcome === outcome);
+  const winner = outcomes.find((outcome) => outcome.id === winningOutcomeId)!;
+  const preview = previews.find((p) => p.outcomeId === winningOutcomeId);
 
   return (
     <div className="space-y-4">
       <form action={resolveAction} className="space-y-4 rounded-xl border border-border bg-surface p-5">
         <input type="hidden" name="marketId" value={marketId} />
-        <input type="hidden" name="outcome" value={outcome} />
+        <input type="hidden" name="winningOutcomeId" value={winningOutcomeId} />
         <h3 className="text-sm font-semibold">Resolve market</h3>
 
-        <div className="flex gap-2">
-          {(["YES", "NO"] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setOutcome(option)}
-              aria-pressed={outcome === option}
-              className={clsx(
-                "h-11 flex-1 rounded-lg text-sm font-bold transition-colors",
-                outcome === option
-                  ? option === "YES"
-                    ? "bg-yes text-white"
-                    : "bg-no text-white"
-                  : option === "YES"
-                    ? "bg-yes-bg text-yes"
-                    : "bg-no-bg text-no",
-              )}
-            >
-              {option}
-            </button>
-          ))}
+        <div className={clsx(outcomes.length === 2 ? "flex gap-2" : "grid gap-2 sm:grid-cols-2")}>
+          {outcomes.map((outcome) => {
+            const active = winningOutcomeId === outcome.id;
+            return (
+              <button
+                key={outcome.id}
+                type="button"
+                onClick={() => setWinningOutcomeId(outcome.id)}
+                aria-pressed={active}
+                className={clsx(
+                  "flex h-11 min-w-0 items-center justify-between gap-2 rounded-lg px-3 text-sm font-bold transition-colors",
+                  outcomes.length === 2 && "flex-1",
+                  active && "text-white",
+                )}
+                style={
+                  active
+                    ? { background: outcomeColorVar(outcome.color) }
+                    : { background: outcomeColorBg(outcome.color), color: outcomeColorVar(outcome.color) }
+                }
+              >
+                <span className="truncate">{outcome.label}</span>
+                <span className="shrink-0 text-xs font-semibold opacity-80 tabular-nums">
+                  {formatPoints(outcome.pool)} pts
+                </span>
+              </button>
+            );
+          })}
         </div>
+
+        {preview?.mode === "REFUND_ALL" ? (
+          <div className="flex items-start gap-2 rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden />
+            <p>
+              <span className="font-bold">Nobody backed {winner.label}.</span> Resolving this way
+              refunds every stake in full — no winners, no rake. Double-check before you pull the
+              trigger.
+            </p>
+          </div>
+        ) : null}
 
         {preview ? (
           <div className="rounded-lg bg-surface-2 p-3">
             <p className="text-xs font-medium text-muted">
-              Payout preview if {outcome} — {formatPoints(preview.rake + preview.dust)} pts burned
-              (rake{preview.dust > 0 ? " + dust" : ""})
+              Payout preview if {winner.label} wins
+              {preview.mode === "NORMAL"
+                ? ` — ${formatPoints(preview.rake + preview.dust)} pts burned (rake${preview.dust > 0 ? " + dust" : ""})`
+                : ""}
             </p>
             {preview.rows.length === 0 ? (
               <p className="mt-2 text-xs text-faint">No stakes to settle.</p>
@@ -93,9 +124,7 @@ export function ResolveMarketForm({
                   {preview.rows.map((row) => (
                     <tr key={row.userId} className="border-t border-border">
                       <td className="py-1.5 font-medium">{row.name}</td>
-                      <td className="py-1.5 text-right tabular-nums">
-                        {formatPoints(row.yesStake + row.noStake)}
-                      </td>
+                      <td className="py-1.5 text-right tabular-nums">{formatPoints(row.staked)}</td>
                       <td className="py-1.5 text-right tabular-nums">{formatPoints(row.payout)}</td>
                       <td
                         className={clsx(
@@ -125,8 +154,17 @@ export function ResolveMarketForm({
         <FieldError message={resolveState.error} />
         {resolveState.success ? <p className="text-sm text-yes">{resolveState.success}</p> : null}
 
-        <Button type="submit" variant={outcome === "YES" ? "yes" : "no"} disabled={resolving} className="w-full">
-          {resolving ? "Resolving…" : `Resolve ${outcome} and pay out`}
+        <Button
+          type="submit"
+          disabled={resolving}
+          className="w-full text-white"
+          style={{ background: outcomeColorVar(winner.color) }}
+        >
+          {resolving
+            ? "Resolving…"
+            : preview?.mode === "REFUND_ALL"
+              ? `Resolve ${winner.label} and refund everyone`
+              : `Resolve ${winner.label} and pay out`}
         </Button>
       </form>
 

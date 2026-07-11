@@ -26,8 +26,20 @@ test("member can open a market and place a bet", async ({ page }) => {
 
   // both mobile and desktop bet slips are in the DOM — target the visible one
   await page.locator('input[name="amount"]:visible').fill("5");
-  await page.locator('button:visible', { hasText: /Bet 5 pts on YES/i }).click();
-  await expect(page.getByText(/You're in — 5 points on YES/i).first()).toBeVisible();
+  await page.locator('button:visible', { hasText: /Bet 5 pts on Yes/i }).click();
+  await expect(page.getByText(/You're in — 5 points on Yes/i).first()).toBeVisible();
+});
+
+test("member can bet on a multi-outcome market", async ({ page }) => {
+  await signIn(page, memberEmail);
+  await page.getByRole("link", { name: /Who wins the North London derby/i }).first().click();
+  await page.waitForURL(/markets\//);
+
+  // pick a named outcome, then bet on it
+  await page.locator("button:visible", { hasText: /^Draw/ }).first().click();
+  await page.locator('input[name="amount"]:visible').fill("5");
+  await page.locator("button:visible", { hasText: /Bet 5 pts on Draw/i }).click();
+  await expect(page.getByText(/You're in — 5 points on Draw/i).first()).toBeVisible();
 });
 
 test("member can post a comment", async ({ page }) => {

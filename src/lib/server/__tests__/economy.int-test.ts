@@ -5,7 +5,7 @@
  *
  * Run via `npm run test:integration` (requires TEST_DATABASE_URL).
  */
-import { BetSide, LedgerEntryType, MarketStatus, UserRole, UserStatus } from "@prisma/client";
+import { LedgerEntryType, MarketStatus, UserRole, UserStatus } from "@prisma/client";
 import { beforeEach, describe, expect, it } from "vitest";
 import { getIsoWeekKey } from "@/lib/allowance";
 import { prisma } from "@/lib/prisma";
@@ -56,9 +56,23 @@ async function createUser(balance: number, role: UserRole = UserRole.MEMBER) {
   return user;
 }
 
-async function createOpenMarket(createdById: string, maxStakePerUser = 500, rakeBps = 500) {
+const BINARY = [
+  { label: "Yes", color: "green" },
+  { label: "No", color: "red" },
+];
+
+const TRIPLE = [
+  { label: "Arsenal", color: "red" },
+  { label: "Draw", color: "amber" },
+  { label: "Chelsea", color: "blue" },
+];
+
+async function createOpenMarket(
+  createdById: string,
+  options: { maxStakePerUser?: number; rakeBps?: number; outcomes?: Array<{ label: string; color: string }> } = {},
+) {
   counter += 1;
-  return prisma.market.create({
+  const market = await prisma.market.create({
     data: {
       title: `Integration market ${counter}`,
       description: "integration test market",
@@ -67,13 +81,22 @@ async function createOpenMarket(createdById: string, maxStakePerUser = 500, rake
       resolveTime: new Date(Date.now() + 2 * 60 * 60 * 1000),
       resolutionSource: "test",
       status: MarketStatus.OPEN,
-      maxStakePerUser,
-      rakeBps,
+      maxStakePerUser: options.maxStakePerUser ?? 500,
+      rakeBps: options.rakeBps ?? 500,
       createdById,
       openedById: createdById,
       openedAt: new Date(),
+      outcomes: {
+        create: (options.outcomes ?? BINARY).map((outcome, index) => ({
+          label: outcome.label,
+          color: outcome.color,
+          sortOrder: index,
+        })),
+      },
     },
+    include: { outcomes: { orderBy: { sortOrder: "asc" } } },
   });
+  return market;
 }
 
 async function userBalance(userId: string) {
@@ -81,8 +104,27 @@ async function userBalance(userId: string) {
   return result._sum.amount ?? 0;
 }
 
-function bet(userId: string, marketId: string, side: BetSide, amount: number) {
-  return placeBet({ userId, marketId, side, amount, skipRateLimit: true });
+function bet(userId: string, marketId: string, outcomeId: string, amount: number) {
+  return placeBet({ userId, marketId, outcomeId, amount, skipRateLimit: true });
+}
+
+/** Σ poolFinal must equal totalPaidOut + rake + dust — the typed-int audit. */
+async function expectConservation(marketId: string) {
+  const resolution = await prisma.marketResolution.findUniqueOrThrow({ where: { marketId } });
+  const outcomes = await prisma.outcome.findMany({ where: { marketId } });
+  const poolFinalSum = outcomes.reduce((sum, outcome) => sum + (outcome.poolFinal ?? 0), 0);
+  expect(poolFinalSum).toBe(
+    resolution.totalPaidOut + resolution.rakeAmount + resolution.dustAmount,
+  );
+
+  // market-scoped ledger sums to exactly the burned amount (stakes negative, payouts positive)
+  const marketLedger = await prisma.ledgerEntry.aggregate({
+    where: { marketId },
+    _sum: { amount: true },
+  });
+  expect(marketLedger._sum.amount).toBe(0 - resolution.rakeAmount - resolution.dustAmount);
+
+  return resolution;
 }
 
 describe.skipIf(!enabled)("economy integration", () => {
@@ -93,6 +135,7 @@ describe.skipIf(!enabled)("economy integration", () => {
     await prisma.poolStake.deleteMany();
     await prisma.marketResolution.deleteMany();
     await prisma.appLog.deleteMany();
+    await prisma.market.updateMany({ data: { winningOutcomeId: null } });
     await prisma.market.deleteMany();
     await prisma.user.deleteMany();
   });
@@ -101,10 +144,11 @@ describe.skipIf(!enabled)("economy integration", () => {
     const admin = await createUser(0, UserRole.ADMIN);
     const user = await createUser(100);
     const market = await createOpenMarket(admin.id);
+    const yes = market.outcomes[0];
 
     const results = await Promise.allSettled([
-      bet(user.id, market.id, BetSide.YES, 80),
-      bet(user.id, market.id, BetSide.YES, 80),
+      bet(user.id, market.id, yes.id, 80),
+      bet(user.id, market.id, yes.id, 80),
     ]);
 
     const fulfilled = results.filter((result) => result.status === "fulfilled");
@@ -112,23 +156,39 @@ describe.skipIf(!enabled)("economy integration", () => {
     expect(await userBalance(user.id)).toBe(20);
   });
 
-  it("prevents concurrent top-ups from busting the per-market cap", async () => {
+  it("prevents concurrent top-ups across outcome rows from busting the per-market cap", async () => {
     const admin = await createUser(0, UserRole.ADMIN);
     const user = await createUser(500);
-    const market = await createOpenMarket(admin.id, 100);
+    const market = await createOpenMarket(admin.id, { maxStakePerUser: 100, outcomes: TRIPLE });
 
+    // the cap is a sum over per-outcome rows — the race must still lose
     const results = await Promise.allSettled([
-      bet(user.id, market.id, BetSide.YES, 60),
-      bet(user.id, market.id, BetSide.NO, 60),
+      bet(user.id, market.id, market.outcomes[0].id, 60),
+      bet(user.id, market.id, market.outcomes[2].id, 60),
     ]);
 
     const fulfilled = results.filter((result) => result.status === "fulfilled");
     expect(fulfilled).toHaveLength(1);
 
-    const stake = await prisma.poolStake.findUnique({
-      where: { userId_marketId: { userId: user.id, marketId: market.id } },
+    const stakes = await prisma.poolStake.findMany({
+      where: { userId: user.id, marketId: market.id },
     });
-    expect((stake?.yesStake ?? 0) + (stake?.noStake ?? 0)).toBeLessThanOrEqual(100);
+    expect(stakes.reduce((sum, stake) => sum + stake.amount, 0)).toBeLessThanOrEqual(100);
+  });
+
+  it("rejects an outcomeId from another market — the silent-refund exploit", async () => {
+    const admin = await createUser(0, UserRole.ADMIN);
+    const user = await createUser(500);
+    const market = await createOpenMarket(admin.id);
+    const other = await createOpenMarket(admin.id);
+
+    await expect(bet(user.id, market.id, other.outcomes[0].id, 50)).rejects.toThrow(/belong/i);
+
+    // nothing moved: no bet, no stake, no ledger entry, pools untouched
+    expect(await prisma.bet.count({ where: { marketId: market.id } })).toBe(0);
+    expect(await userBalance(user.id)).toBe(500);
+    const outcomes = await prisma.outcome.findMany({ where: { marketId: other.id } });
+    expect(outcomes.every((outcome) => outcome.pool === 0)).toBe(true);
   });
 
   it("credits the weekly allowance exactly once under concurrency", async () => {
@@ -147,37 +207,75 @@ describe.skipIf(!enabled)("economy integration", () => {
     expect(rows[0].allowanceWeek).toBe(getIsoWeekKey(new Date()));
   });
 
-  it("settles a market with exact conservation and winners never below stake", async () => {
+  it("settles a binary market with exact conservation and winners never below stake", async () => {
     const admin = await createUser(0, UserRole.ADMIN);
     const alex = await createUser(500);
     const blair = await createUser(500);
     const casey = await createUser(500);
     const market = await createOpenMarket(admin.id);
+    const [yes, no] = market.outcomes;
 
-    await bet(alex.id, market.id, BetSide.YES, 121);
-    await bet(blair.id, market.id, BetSide.NO, 200);
-    await bet(casey.id, market.id, BetSide.YES, 32);
+    await bet(alex.id, market.id, yes.id, 121);
+    await bet(blair.id, market.id, no.id, 200);
+    await bet(casey.id, market.id, yes.id, 32);
 
-    await resolveMarket(market.id, admin.id, "YES", "test", "integration");
+    await resolveMarket(market.id, admin.id, yes.id, "test", "integration");
 
-    const resolution = await prisma.marketResolution.findUniqueOrThrow({
-      where: { marketId: market.id },
-    });
-    expect(resolution.yesPoolFinal + resolution.noPoolFinal).toBe(
-      resolution.totalPaidOut + resolution.rakeAmount + resolution.dustAmount,
-    );
+    const resolution = await expectConservation(market.id);
+    expect(resolution.winningOutcomeId).toBe(yes.id);
 
-    // market-scoped ledger sums to exactly the burned amount (stakes negative, payouts positive)
-    const marketLedger = await prisma.ledgerEntry.aggregate({
-      where: { marketId: market.id },
-      _sum: { amount: true },
-    });
-    expect(marketLedger._sum.amount).toBe(-(resolution.rakeAmount + resolution.dustAmount));
+    const updated = await prisma.market.findUniqueOrThrow({ where: { id: market.id } });
+    expect(updated.winningOutcomeId).toBe(yes.id);
 
     // winners never receive less than their stake back
     expect(await userBalance(alex.id)).toBeGreaterThanOrEqual(500);
     expect(await userBalance(casey.id)).toBeGreaterThanOrEqual(500);
     expect(await userBalance(blair.id)).toBe(300);
+  });
+
+  it("settles a 3-outcome market where a straddling user gets one payout row", async () => {
+    const admin = await createUser(0, UserRole.ADMIN);
+    const hedger = await createUser(500);
+    const other = await createUser(500);
+    const market = await createOpenMarket(admin.id, { outcomes: TRIPLE });
+    const [arsenal, draw, chelsea] = market.outcomes;
+
+    await bet(hedger.id, market.id, arsenal.id, 100);
+    await bet(hedger.id, market.id, draw.id, 50);
+    await bet(other.id, market.id, chelsea.id, 150);
+
+    await resolveMarket(market.id, admin.id, arsenal.id, "test");
+
+    await expectConservation(market.id);
+
+    // W = 100, L = 200, rake = 10 → hedger nets 100 + 190 = 290 in ONE payout
+    const payouts = await prisma.ledgerEntry.findMany({
+      where: { marketId: market.id, type: LedgerEntryType.MARKET_PAYOUT },
+    });
+    expect(payouts).toHaveLength(1);
+    expect(payouts[0].userId).toBe(hedger.id);
+    expect(payouts[0].amount).toBe(290);
+    expect(await userBalance(hedger.id)).toBe(500 - 150 + 290);
+    expect(await userBalance(other.id)).toBe(350);
+  });
+
+  it("refunds everyone when nobody backed the winning outcome", async () => {
+    const admin = await createUser(0, UserRole.ADMIN);
+    const alex = await createUser(500);
+    const blair = await createUser(500);
+    const market = await createOpenMarket(admin.id, { outcomes: TRIPLE });
+    const [arsenal, draw, chelsea] = market.outcomes;
+
+    await bet(alex.id, market.id, arsenal.id, 200);
+    await bet(blair.id, market.id, chelsea.id, 100);
+
+    // the unbacked dark horse wins → REFUND_ALL, no rake
+    await resolveMarket(market.id, admin.id, draw.id, "test");
+
+    const resolution = await expectConservation(market.id);
+    expect(resolution.rakeAmount).toBe(0);
+    expect(await userBalance(alex.id)).toBe(500);
+    expect(await userBalance(blair.id)).toBe(500);
   });
 
   it("fences bets against a concurrent resolution — no point is both spent and unpaid", async () => {
@@ -186,45 +284,40 @@ describe.skipIf(!enabled)("economy integration", () => {
     const blair = await createUser(500);
     const casey = await createUser(500);
     const market = await createOpenMarket(admin.id);
+    const [yes, no] = market.outcomes;
 
-    await bet(alex.id, market.id, BetSide.YES, 100);
-    await bet(blair.id, market.id, BetSide.NO, 100);
+    await bet(alex.id, market.id, yes.id, 100);
+    await bet(blair.id, market.id, no.id, 100);
 
     const [resolveResult, betResult] = await Promise.allSettled([
-      resolveMarket(market.id, admin.id, "YES", "test"),
-      bet(casey.id, market.id, BetSide.NO, 50),
+      resolveMarket(market.id, admin.id, yes.id, "test"),
+      bet(casey.id, market.id, no.id, 50),
     ]);
 
     expect(resolveResult.status).toBe("fulfilled");
 
-    const resolution = await prisma.marketResolution.findUniqueOrThrow({
-      where: { marketId: market.id },
-    });
+    const noOutcome = await prisma.outcome.findUniqueOrThrow({ where: { id: no.id } });
 
     if (betResult.status === "fulfilled") {
       // the bet won the race — it must be inside the settled pools
-      expect(resolution.noPoolFinal).toBe(150);
+      expect(noOutcome.poolFinal).toBe(150);
     } else {
       // the bet lost the race — it must have cost casey nothing
       expect(await userBalance(casey.id)).toBe(500);
-      expect(resolution.noPoolFinal).toBe(100);
+      expect(noOutcome.poolFinal).toBe(100);
     }
 
-    const marketLedger = await prisma.ledgerEntry.aggregate({
-      where: { marketId: market.id },
-      _sum: { amount: true },
-    });
-    expect(marketLedger._sum.amount).toBe(-(resolution.rakeAmount + resolution.dustAmount));
+    await expectConservation(market.id);
   });
 
   it("refunds every stake in full when a market is canceled", async () => {
     const admin = await createUser(0, UserRole.ADMIN);
     const alex = await createUser(500);
     const blair = await createUser(500);
-    const market = await createOpenMarket(admin.id);
+    const market = await createOpenMarket(admin.id, { outcomes: TRIPLE });
 
-    await bet(alex.id, market.id, BetSide.YES, 120);
-    await bet(blair.id, market.id, BetSide.NO, 75);
+    await bet(alex.id, market.id, market.outcomes[0].id, 120);
+    await bet(blair.id, market.id, market.outcomes[1].id, 75);
     await cancelMarket(market.id, admin.id, "integration test cancel");
 
     expect(await userBalance(alex.id)).toBe(500);
@@ -233,6 +326,7 @@ describe.skipIf(!enabled)("economy integration", () => {
     const resolution = await prisma.marketResolution.findUniqueOrThrow({
       where: { marketId: market.id },
     });
+    expect(resolution.winningOutcomeId).toBeNull();
     expect(resolution.rakeAmount).toBe(0);
     expect(resolution.totalPaidOut).toBe(195);
   });
@@ -269,13 +363,14 @@ describe.skipIf(!enabled)("economy integration", () => {
     const admin = await createUser(0, UserRole.ADMIN);
     const user = await createUser(50);
     const market = await createOpenMarket(admin.id);
+    const yes = market.outcomes[0];
 
-    await expect(bet(user.id, market.id, BetSide.YES, 100)).rejects.toThrow(/balance/i);
+    await expect(bet(user.id, market.id, yes.id, 100)).rejects.toThrow(/balance/i);
 
     await prisma.market.update({
       where: { id: market.id },
       data: { closeTime: new Date(Date.now() - 1000) },
     });
-    await expect(bet(user.id, market.id, BetSide.YES, 10)).rejects.toThrow(/close/i);
+    await expect(bet(user.id, market.id, yes.id, 10)).rejects.toThrow(/close/i);
   });
 });

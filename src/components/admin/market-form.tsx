@@ -1,10 +1,21 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import clsx from "clsx";
+import { Plus, X } from "lucide-react";
 import { appConfig } from "@/lib/config";
+import {
+  BINARY_PRESET,
+  MULTI_OUTCOME_DEAL_ORDER,
+  OUTCOME_COLORS,
+  outcomeColorVar,
+  type OutcomeColor,
+} from "@/lib/outcome-colors";
 import type { MarketFormState } from "@/app/actions/markets";
 import { Button } from "@/components/ui/button";
 import { FieldError, Input, Label, Textarea } from "@/components/ui/input";
+
+type OutcomeRow = { label: string; color: string };
 
 type Props = {
   action: (_: MarketFormState, formData: FormData) => Promise<MarketFormState>;
@@ -16,6 +27,7 @@ type Props = {
     closeTime: Date;
     resolveTime: Date;
     resolutionSource: string;
+    outcomes: Array<{ label: string; color: string }>;
     maxStakePerUser?: number;
     rakeBps?: number;
   };
@@ -25,6 +37,8 @@ type Props = {
 };
 
 const initialState: MarketFormState = {};
+
+const MAX_OUTCOMES = 6;
 
 function toInputDateTime(value: Date) {
   return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
@@ -43,6 +57,15 @@ const PRESETS = [
   { label: "Close 2w, resolve +1w", close: 336, resolve: 168 },
 ];
 
+function nextUnusedColor(rows: OutcomeRow[]): OutcomeColor {
+  const used = new Set(rows.map((row) => row.color));
+  return (
+    MULTI_OUTCOME_DEAL_ORDER.find((color) => !used.has(color)) ??
+    OUTCOME_COLORS.find((color) => !used.has(color)) ??
+    MULTI_OUTCOME_DEAL_ORDER[rows.length % MULTI_OUTCOME_DEAL_ORDER.length]
+  );
+}
+
 export function MarketForm({ action, market, mode = "admin", submitLabel }: Props) {
   const [state, formAction, pending] = useActionState(action, initialState);
   const [closeTime, setCloseTime] = useState(
@@ -51,12 +74,50 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
   const [resolveTime, setResolveTime] = useState(
     market ? toInputDateTime(market.resolveTime) : toInputDateTime(addHours(new Date(), 72)),
   );
+  const [outcomes, setOutcomes] = useState<OutcomeRow[]>(
+    market ? market.outcomes.map((o) => ({ label: o.label, color: o.color })) : [...BINARY_PRESET],
+  );
+  // the outcome count is fixed once the market exists
+  const countLocked = Boolean(market);
 
   function applyPreset(closeHoursFromNow: number, resolveHoursAfterClose: number) {
     const close = addHours(new Date(), closeHoursFromNow);
     const resolve = addHours(close, resolveHoursAfterClose);
     setCloseTime(toInputDateTime(close));
     setResolveTime(toInputDateTime(resolve));
+  }
+
+  function updateOutcome(index: number, patch: Partial<OutcomeRow>) {
+    setOutcomes((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
+  function addOutcome() {
+    setOutcomes((rows) => {
+      if (rows.length >= MAX_OUTCOMES) {
+        return rows;
+      }
+      // leaving the binary preset: green/red read as win/lose, so re-deal
+      // untouched Yes/No rows to the non-semantic hues
+      const isUntouchedPreset =
+        rows.length === 2 &&
+        rows[0].label === BINARY_PRESET[0].label &&
+        rows[0].color === BINARY_PRESET[0].color &&
+        rows[1].label === BINARY_PRESET[1].label &&
+        rows[1].color === BINARY_PRESET[1].color;
+
+      const base = isUntouchedPreset
+        ? [
+            { label: "", color: MULTI_OUTCOME_DEAL_ORDER[0] },
+            { label: "", color: MULTI_OUTCOME_DEAL_ORDER[1] },
+          ]
+        : rows;
+
+      return [...base, { label: "", color: nextUnusedColor(base) }];
+    });
+  }
+
+  function removeOutcome(index: number) {
+    setOutcomes((rows) => (rows.length > 2 ? rows.filter((_, i) => i !== index) : rows));
   }
 
   return (
@@ -70,7 +131,7 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
             id="mf-title"
             name="title"
             defaultValue={market?.title}
-            placeholder="Will Dave finish the marathon?"
+            placeholder="Who wins the five-a-side tournament?"
             minLength={5}
             required
           />
@@ -96,13 +157,74 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
           id="mf-description"
           name="description"
           defaultValue={market?.description}
-          placeholder="Be precise about what counts as YES — future you will thank you."
+          placeholder="Be precise about what counts for each outcome — future you will thank you."
           className="min-h-28"
           minLength={10}
           required
         />
         <p className="mt-1 text-xs text-faint">At least 10 characters.</p>
         <FieldError message={state.fieldErrors?.description} />
+      </div>
+
+      <div>
+        <Label>Outcomes</Label>
+        <p className="mb-2 text-xs text-faint">
+          2–6 options; exactly one wins. Labels and colors lock in once the first bet lands.
+        </p>
+        <div className="space-y-2">
+          {outcomes.map((outcome, index) => (
+            <div key={index} className="flex items-center gap-2">
+              <Input
+                name="outcomeLabel"
+                value={outcome.label}
+                onChange={(event) => updateOutcome(index, { label: event.target.value })}
+                placeholder={`Outcome ${index + 1}`}
+                aria-label={`Outcome ${index + 1} label`}
+                maxLength={40}
+                required
+                className="flex-1"
+              />
+              <input type="hidden" name="outcomeColor" value={outcome.color} />
+              <div className="flex shrink-0 gap-1" role="radiogroup" aria-label={`Outcome ${index + 1} color`}>
+                {OUTCOME_COLORS.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    role="radio"
+                    aria-checked={outcome.color === color}
+                    aria-label={color}
+                    title={color}
+                    onClick={() => updateOutcome(index, { color })}
+                    className={clsx(
+                      "size-5 rounded-full transition-transform",
+                      outcome.color === color
+                        ? "scale-110 ring-2 ring-foreground ring-offset-1 ring-offset-surface"
+                        : "opacity-60 hover:opacity-100",
+                    )}
+                    style={{ background: outcomeColorVar(color) }}
+                  />
+                ))}
+              </div>
+              {!countLocked ? (
+                <button
+                  type="button"
+                  onClick={() => removeOutcome(index)}
+                  disabled={outcomes.length <= 2}
+                  aria-label={`Remove outcome ${index + 1}`}
+                  className="rounded-md p-1 text-faint transition-colors hover:text-no disabled:invisible"
+                >
+                  <X className="size-4" aria-hidden />
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+        {!countLocked && outcomes.length < MAX_OUTCOMES ? (
+          <Button type="button" variant="secondary" size="sm" onClick={addOutcome} className="mt-2">
+            <Plus className="size-3.5" aria-hidden /> Add outcome
+          </Button>
+        ) : null}
+        <FieldError message={state.fieldErrors?.outcomes} />
       </div>
 
       <div className="rounded-lg bg-surface-2 p-3">

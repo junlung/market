@@ -2,11 +2,13 @@ import Link from "next/link";
 import clsx from "clsx";
 import { Avatar } from "@/components/ui/avatar";
 import { formatChance, formatPoints, formatRelativeTime } from "@/lib/format";
+import { outcomeColorVar } from "@/lib/outcome-colors";
 
 export type ActivityItem = {
   id: string;
   userName: string;
-  side: "YES" | "NO";
+  outcomeLabel: string;
+  outcomeColor: string;
   amount: number;
   probabilityAfter: number;
   createdAt: Date;
@@ -24,8 +26,8 @@ export function ActivityRow({ item }: { item: ActivityItem }) {
           <span className="text-muted">bet</span>{" "}
           <span className="font-semibold tabular-nums">{formatPoints(item.amount)} pts</span>{" "}
           <span className="text-muted">on</span>{" "}
-          <span className={clsx("font-bold", item.side === "YES" ? "text-yes" : "text-no")}>
-            {item.side}
+          <span className="font-bold" style={{ color: outcomeColorVar(item.outcomeColor) }}>
+            {item.outcomeLabel}
           </span>
           {item.marketId && item.marketTitle ? (
             <>

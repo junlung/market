@@ -1,7 +1,8 @@
-import { BetSide, LedgerEntryType, UserRole, UserStatus } from "@prisma/client";
+import { LedgerEntryType, UserRole, UserStatus } from "@prisma/client";
 import { hash } from "bcryptjs";
 import { getIsoWeekKey } from "../src/lib/allowance";
 import { appConfig } from "../src/lib/config";
+import { BINARY_PRESET } from "../src/lib/outcome-colors";
 import { prisma } from "../src/lib/prisma";
 import { placeBet } from "../src/lib/server/bet-service";
 import { createComment } from "../src/lib/server/comment-service";
@@ -107,14 +108,20 @@ async function seedUsers(defaultPassword: string) {
   };
 }
 
-type SeedBet = { userId: string; side: BetSide; amount: number; daysAgo: number };
+/** outcome is the sortOrder index into the market's outcomes. */
+type SeedBet = { userId: string; outcome: number; amount: number; daysAgo: number };
 
 async function placeSeedBets(marketId: string, bets: SeedBet[]) {
+  const outcomes = await prisma.outcome.findMany({
+    where: { marketId },
+    orderBy: { sortOrder: "asc" },
+  });
+
   for (const bet of bets) {
     const result = await placeBet({
       userId: bet.userId,
       marketId,
-      side: bet.side,
+      outcomeId: outcomes[bet.outcome].id,
       amount: bet.amount,
       skipRateLimit: true,
     });
@@ -134,6 +141,13 @@ async function backdateMarket(marketId: string, daysAgo: number) {
   });
 }
 
+async function winningOutcomeId(marketId: string, sortOrder: number) {
+  const outcome = await prisma.outcome.findUniqueOrThrow({
+    where: { marketId_sortOrder: { marketId, sortOrder } },
+  });
+  return outcome.id;
+}
+
 async function seedMarkets(users: Awaited<ReturnType<typeof seedUsers>>) {
   const existing = await prisma.market.count();
   if (existing > 0) {
@@ -143,7 +157,7 @@ async function seedMarkets(users: Awaited<ReturnType<typeof seedUsers>>) {
 
   const { admin, alex, blair, casey, dana } = users;
 
-  // 1) OPEN market with an active betting history + comments
+  // 1) OPEN binary market with an active betting history + comments
   const knicks = await createMarket({
     actorId: admin.id,
     fields: {
@@ -155,19 +169,20 @@ async function seedMarkets(users: Awaited<ReturnType<typeof seedUsers>>) {
       resolveTime: daysFromNow(9),
       resolutionSource: "nba.com official results",
     },
+    outcomes: BINARY_PRESET,
     openNow: true,
   });
   await backdateMarket(knicks.id, 5);
   await placeSeedBets(knicks.id, [
-    { userId: alex.id, side: BetSide.YES, amount: 50, daysAgo: 4.8 },
-    { userId: blair.id, side: BetSide.NO, amount: 80, daysAgo: 4.5 },
-    { userId: casey.id, side: BetSide.YES, amount: 30, daysAgo: 4.1 },
-    { userId: dana.id, side: BetSide.NO, amount: 40, daysAgo: 3.6 },
-    { userId: alex.id, side: BetSide.YES, amount: 60, daysAgo: 2.9 },
-    { userId: blair.id, side: BetSide.NO, amount: 70, daysAgo: 2.2 },
-    { userId: dana.id, side: BetSide.YES, amount: 25, daysAgo: 1.4 },
-    { userId: casey.id, side: BetSide.YES, amount: 45, daysAgo: 0.8 },
-    { userId: blair.id, side: BetSide.NO, amount: 50, daysAgo: 0.3 },
+    { userId: alex.id, outcome: 0, amount: 50, daysAgo: 4.8 },
+    { userId: blair.id, outcome: 1, amount: 80, daysAgo: 4.5 },
+    { userId: casey.id, outcome: 0, amount: 30, daysAgo: 4.1 },
+    { userId: dana.id, outcome: 1, amount: 40, daysAgo: 3.6 },
+    { userId: alex.id, outcome: 0, amount: 60, daysAgo: 2.9 },
+    { userId: blair.id, outcome: 1, amount: 70, daysAgo: 2.2 },
+    { userId: dana.id, outcome: 0, amount: 25, daysAgo: 1.4 },
+    { userId: casey.id, outcome: 0, amount: 45, daysAgo: 0.8 },
+    { userId: blair.id, outcome: 1, amount: 50, daysAgo: 0.3 },
   ]);
   await createComment({
     userId: blair.id,
@@ -188,7 +203,42 @@ async function seedMarkets(users: Awaited<ReturnType<typeof seedUsers>>) {
     skipRateLimit: true,
   });
 
-  // 2) OPEN, fresh market (empty pools — 50/50 display case)
+  // 2) OPEN 3-outcome market with betting history — the multi-outcome demo
+  const derby = await createMarket({
+    actorId: admin.id,
+    fields: {
+      title: "Who wins the North London derby?",
+      description:
+        "Resolves to the full-time result of the next Arsenal vs Spurs league match: Arsenal win, Draw, or Spurs win. Abandoned match cancels the market.",
+      category: "Sports",
+      closeTime: daysFromNow(4),
+      resolveTime: daysFromNow(5),
+      resolutionSource: "premierleague.com official result",
+    },
+    outcomes: [
+      { label: "Arsenal", color: "red" },
+      { label: "Draw", color: "amber" },
+      { label: "Spurs", color: "blue" },
+    ],
+    openNow: true,
+  });
+  await backdateMarket(derby.id, 3);
+  await placeSeedBets(derby.id, [
+    { userId: alex.id, outcome: 0, amount: 60, daysAgo: 2.7 },
+    { userId: blair.id, outcome: 2, amount: 45, daysAgo: 2.3 },
+    { userId: casey.id, outcome: 1, amount: 25, daysAgo: 1.9 },
+    { userId: dana.id, outcome: 0, amount: 40, daysAgo: 1.4 },
+    { userId: blair.id, outcome: 1, amount: 30, daysAgo: 0.9 },
+    { userId: alex.id, outcome: 0, amount: 35, daysAgo: 0.4 },
+  ]);
+  await createComment({
+    userId: casey.id,
+    marketId: derby.id,
+    body: "Derby games are always draws. Easy money.",
+    skipRateLimit: true,
+  });
+
+  // 3) OPEN, fresh market (empty pools — 1/N display case)
   await createMarket({
     actorId: admin.id,
     fields: {
@@ -199,10 +249,11 @@ async function seedMarkets(users: Awaited<ReturnType<typeof seedUsers>>) {
       resolveTime: daysFromNow(15),
       resolutionSource: "weather.gov station records",
     },
+    outcomes: BINARY_PRESET,
     openNow: true,
   });
 
-  // 3) PROPOSED by a member — admin review queue demo
+  // 4) PROPOSED by a member — admin review queue demo
   await proposeMarket({
     proposerId: casey.id,
     fields: {
@@ -213,9 +264,10 @@ async function seedMarkets(users: Awaited<ReturnType<typeof seedUsers>>) {
       resolveTime: daysFromNow(21),
       resolutionSource: "Official race tracker + Strava",
     },
+    outcomes: BINARY_PRESET,
   });
 
-  // 4) DRAFT (admin-created, not yet open)
+  // 5) DRAFT (admin-created, not yet open)
   await createMarket({
     actorId: admin.id,
     fields: {
@@ -226,9 +278,10 @@ async function seedMarkets(users: Awaited<ReturnType<typeof seedUsers>>) {
       resolveTime: daysFromNow(11),
       resolutionSource: "Chat export screenshot",
     },
+    outcomes: BINARY_PRESET,
   });
 
-  // 5) CLOSED, awaiting resolution
+  // 6) CLOSED, awaiting resolution
   const poker = await createMarket({
     actorId: admin.id,
     fields: {
@@ -239,18 +292,19 @@ async function seedMarkets(users: Awaited<ReturnType<typeof seedUsers>>) {
       resolveTime: daysFromNow(3),
       resolutionSource: "Group vote at the table",
     },
+    outcomes: BINARY_PRESET,
     openNow: true,
   });
   await backdateMarket(poker.id, 3);
   await placeSeedBets(poker.id, [
-    { userId: blair.id, side: BetSide.YES, amount: 100, daysAgo: 2.5 },
-    { userId: alex.id, side: BetSide.NO, amount: 60, daysAgo: 2.0 },
-    { userId: dana.id, side: BetSide.NO, amount: 45, daysAgo: 1.2 },
+    { userId: blair.id, outcome: 0, amount: 100, daysAgo: 2.5 },
+    { userId: alex.id, outcome: 1, amount: 60, daysAgo: 2.0 },
+    { userId: dana.id, outcome: 1, amount: 45, daysAgo: 1.2 },
   ]);
   await prisma.market.update({ where: { id: poker.id }, data: { closeTime: new Date(Date.now() - 60_000) } });
   await closeMarket(poker.id, admin.id);
 
-  // 6) RESOLVED YES — real payouts with visible rake and dust
+  // 7) RESOLVED YES — real payouts with visible rake and dust
   const album = await createMarket({
     actorId: admin.id,
     fields: {
@@ -261,16 +315,23 @@ async function seedMarkets(users: Awaited<ReturnType<typeof seedUsers>>) {
       resolveTime: daysFromNow(2),
       resolutionSource: "Spotify release page",
     },
+    outcomes: BINARY_PRESET,
     openNow: true,
   });
   await backdateMarket(album.id, 8);
   await placeSeedBets(album.id, [
-    { userId: alex.id, side: BetSide.YES, amount: 121, daysAgo: 7.5 },
-    { userId: blair.id, side: BetSide.NO, amount: 200, daysAgo: 6.8 },
-    { userId: casey.id, side: BetSide.YES, amount: 32, daysAgo: 5.4 },
-    { userId: dana.id, side: BetSide.NO, amount: 47, daysAgo: 4.2 },
+    { userId: alex.id, outcome: 0, amount: 121, daysAgo: 7.5 },
+    { userId: blair.id, outcome: 1, amount: 200, daysAgo: 6.8 },
+    { userId: casey.id, outcome: 0, amount: 32, daysAgo: 5.4 },
+    { userId: dana.id, outcome: 1, amount: 47, daysAgo: 4.2 },
   ]);
-  await resolveMarket(album.id, admin.id, "YES", "Spotify release page", "Dropped at midnight. Alex called it.");
+  await resolveMarket(
+    album.id,
+    admin.id,
+    await winningOutcomeId(album.id, 0),
+    "Spotify release page",
+    "Dropped at midnight. Alex called it.",
+  );
   await createComment({
     userId: alex.id,
     marketId: album.id,
@@ -278,7 +339,7 @@ async function seedMarkets(users: Awaited<ReturnType<typeof seedUsers>>) {
     skipRateLimit: true,
   });
 
-  // 7) CANCELED — refund demo
+  // 8) CANCELED — refund demo
   const roadTrip = await createMarket({
     actorId: admin.id,
     fields: {
@@ -289,12 +350,13 @@ async function seedMarkets(users: Awaited<ReturnType<typeof seedUsers>>) {
       resolveTime: daysFromNow(6),
       resolutionSource: "Group consensus",
     },
+    outcomes: BINARY_PRESET,
     openNow: true,
   });
   await backdateMarket(roadTrip.id, 4);
   await placeSeedBets(roadTrip.id, [
-    { userId: casey.id, side: BetSide.YES, amount: 40, daysAgo: 3.2 },
-    { userId: dana.id, side: BetSide.NO, amount: 25, daysAgo: 2.1 },
+    { userId: casey.id, outcome: 0, amount: 40, daysAgo: 3.2 },
+    { userId: dana.id, outcome: 1, amount: 25, daysAgo: 2.1 },
   ]);
   await cancelMarket(roadTrip.id, admin.id, "Trip postponed indefinitely — no fair way to resolve.");
 }

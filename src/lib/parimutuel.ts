@@ -1,12 +1,8 @@
-export type PoolState = {
-  yesPool: number;
-  noPool: number;
-};
-
-export type StakeRow = {
+/** A user's aggregate stake on one outcome. A user may hold several outcomes. */
+export type OutcomeStake = {
   userId: string;
-  yesStake: number;
-  noStake: number;
+  outcomeId: string;
+  amount: number;
 };
 
 export type PayoutRow = {
@@ -42,28 +38,29 @@ function assertRakeBps(rakeBps: number) {
   }
 }
 
-export function getOdds(state: PoolState) {
-  assertSafeInt(state.yesPool, "Yes pool");
-  assertSafeInt(state.noPool, "No pool");
+/**
+ * Implied odds for an N-outcome market. An empty market shows the uniform
+ * 1/N prior; multipliers are gross pre-rake, display only.
+ */
+export function getOdds(pools: number[]) {
+  if (pools.length < 2) {
+    throw new Error("A market needs at least 2 outcome pools.");
+  }
+  pools.forEach((pool, index) => assertSafeInt(pool, `Pool ${index}`));
 
-  const total = state.yesPool + state.noPool;
+  const total = pools.reduce((sum, pool) => sum + pool, 0);
 
   if (total === 0) {
     return {
-      yesProbability: 0.5,
-      noProbability: 0.5,
-      yesMultiplier: null,
-      noMultiplier: null,
+      probabilities: pools.map(() => 1 / pools.length),
+      multipliers: pools.map(() => null as number | null),
       total,
     };
   }
 
   return {
-    yesProbability: state.yesPool / total,
-    noProbability: state.noPool / total,
-    // gross pre-rake multiplier, display only
-    yesMultiplier: state.yesPool > 0 ? total / state.yesPool : null,
-    noMultiplier: state.noPool > 0 ? total / state.noPool : null,
+    probabilities: pools.map((pool) => pool / total),
+    multipliers: pools.map((pool) => (pool > 0 ? total / pool : null)),
     total,
   };
 }
@@ -76,7 +73,8 @@ export function computeRake(losingPool: number, rakeBps: number) {
 
 /**
  * Bet-slip preview: what a stake would pay if the market resolved for it
- * with the given final pools. `winningPool` must already include `stake`.
+ * with the given final pools. `winningPool` must already include `stake`;
+ * `losingPool` is the sum of every other outcome's pool.
  */
 export function estimatePayout(input: {
   stake: number;
@@ -100,21 +98,32 @@ export function estimatePayout(input: {
   return input.stake + Math.floor((input.stake * distributable) / input.winningPool);
 }
 
-function totalStake(row: StakeRow) {
-  return row.yesStake + row.noStake;
-}
-
-function validateStakes(stakes: StakeRow[]) {
+function validateStakes(stakes: OutcomeStake[]) {
   for (const row of stakes) {
-    assertSafeInt(row.yesStake, `Yes stake for ${row.userId}`);
-    assertSafeInt(row.noStake, `No stake for ${row.userId}`);
+    assertSafeInt(row.amount, `Stake for ${row.userId} on ${row.outcomeId}`);
   }
 }
 
-function refundAll(stakes: StakeRow[], totalIn: number): SettlementResult {
-  const payouts = stakes
-    .filter((row) => totalStake(row) > 0)
-    .map((row) => ({ userId: row.userId, amount: totalStake(row), kind: "REFUND" as const }));
+/** One row per user: total staked plus the slice on the winning outcome. */
+function groupByUser(stakes: OutcomeStake[], winningOutcomeId: string | null) {
+  const users = new Map<string, { total: number; winning: number }>();
+  for (const row of stakes) {
+    const entry = users.get(row.userId) ?? { total: 0, winning: 0 };
+    entry.total += row.amount;
+    if (row.outcomeId === winningOutcomeId) {
+      entry.winning += row.amount;
+    }
+    users.set(row.userId, entry);
+  }
+  return [...users.entries()]
+    .map(([userId, entry]) => ({ userId, ...entry }))
+    .sort((a, b) => a.userId.localeCompare(b.userId));
+}
+
+function refundAll(users: Array<{ userId: string; total: number }>, totalIn: number): SettlementResult {
+  const payouts = users
+    .filter((row) => row.total > 0)
+    .map((row) => ({ userId: row.userId, amount: row.total, kind: "REFUND" as const }));
 
   return {
     mode: "REFUND_ALL",
@@ -128,50 +137,50 @@ function refundAll(stakes: StakeRow[], totalIn: number): SettlementResult {
   };
 }
 
+const EMPTY_RESULT: SettlementResult = {
+  mode: "EMPTY",
+  payouts: [],
+  winningPool: 0,
+  losingPool: 0,
+  rake: 0,
+  dust: 0,
+  totalIn: 0,
+  totalOut: 0,
+};
+
 /**
- * Deterministic parimutuel settlement.
+ * Deterministic parimutuel settlement over N outcomes.
  *
- * NORMAL: each winner receives stake + floor(stake * (L - rake) / W).
- *   Winners never receive less than their stake; rounding dust is burned.
- * W = 0 with money on the losing side: nobody won — refund everyone, no rake.
+ * Stakes are grouped per user first — a user can hold the winner *and*
+ * losers, and gets exactly one payout row. W = winning outcome's pool,
+ * L = everything else.
+ *
+ * NORMAL: each winner receives winning stake + floor(stake * (L - rake) / W).
+ *   Winners never receive less than their winning stake; rounding dust is burned.
+ * W = 0 with money elsewhere: nobody won — refund everyone, no rake.
  * No stakes at all: EMPTY.
  *
  * Invariant (checkConservation): totalIn === totalOut + rake + dust.
  */
 export function computeSettlement(
-  stakes: StakeRow[],
-  outcome: "YES" | "NO",
+  stakes: OutcomeStake[],
+  winningOutcomeId: string,
   rakeBps: number,
 ): SettlementResult {
   validateStakes(stakes);
   assertRakeBps(rakeBps);
 
-  const sorted = [...stakes].sort((a, b) => a.userId.localeCompare(b.userId));
-  const winningPool = sorted.reduce(
-    (sum, row) => sum + (outcome === "YES" ? row.yesStake : row.noStake),
-    0,
-  );
-  const losingPool = sorted.reduce(
-    (sum, row) => sum + (outcome === "YES" ? row.noStake : row.yesStake),
-    0,
-  );
-  const totalIn = winningPool + losingPool;
+  const users = groupByUser(stakes, winningOutcomeId);
+  const totalIn = users.reduce((sum, row) => sum + row.total, 0);
+  const winningPool = users.reduce((sum, row) => sum + row.winning, 0);
+  const losingPool = totalIn - winningPool;
 
   if (totalIn === 0) {
-    return {
-      mode: "EMPTY",
-      payouts: [],
-      winningPool: 0,
-      losingPool: 0,
-      rake: 0,
-      dust: 0,
-      totalIn: 0,
-      totalOut: 0,
-    };
+    return EMPTY_RESULT;
   }
 
   if (winningPool === 0) {
-    return refundAll(sorted, totalIn);
+    return refundAll(users, totalIn);
   }
 
   const rake = computeRake(losingPool, rakeBps);
@@ -180,15 +189,14 @@ export function computeSettlement(
 
   const payouts: PayoutRow[] = [];
 
-  for (const row of sorted) {
-    const stake = outcome === "YES" ? row.yesStake : row.noStake;
-    if (stake === 0) {
+  for (const row of users) {
+    if (row.winning === 0) {
       continue;
     }
 
-    const share = Math.floor((stake * distributable) / winningPool);
+    const share = Math.floor((row.winning * distributable) / winningPool);
     distributed += share;
-    payouts.push({ userId: row.userId, amount: stake + share, kind: "PAYOUT" });
+    payouts.push({ userId: row.userId, amount: row.winning + share, kind: "PAYOUT" });
   }
 
   const dust = distributable - distributed;
@@ -212,25 +220,16 @@ export function computeSettlement(
   return result;
 }
 
-export function computeCancelRefunds(stakes: StakeRow[]): SettlementResult {
+export function computeCancelRefunds(stakes: OutcomeStake[]): SettlementResult {
   validateStakes(stakes);
-  const sorted = [...stakes].sort((a, b) => a.userId.localeCompare(b.userId));
-  const totalIn = sorted.reduce((sum, row) => sum + totalStake(row), 0);
+  const users = groupByUser(stakes, null);
+  const totalIn = users.reduce((sum, row) => sum + row.total, 0);
 
   if (totalIn === 0) {
-    return {
-      mode: "EMPTY",
-      payouts: [],
-      winningPool: 0,
-      losingPool: 0,
-      rake: 0,
-      dust: 0,
-      totalIn: 0,
-      totalOut: 0,
-    };
+    return EMPTY_RESULT;
   }
 
-  return refundAll(sorted, totalIn);
+  return refundAll(users, totalIn);
 }
 
 export function checkConservation(result: SettlementResult) {

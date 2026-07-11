@@ -25,6 +25,8 @@ enum MarketStatus {
   CANCELED
 }
 
+// Legacy release-1 enums — dropped in the contract release along with the
+// columns that use them (Postgres can't shrink an enum in place).
 enum MarketOutcome {
   YES
   NO
@@ -102,11 +104,19 @@ model Market {
   resolveTime      DateTime
   resolutionSource String
   status           MarketStatus      @default(DRAFT)
-  finalOutcome     MarketOutcome?
 
-  // parimutuel pools — integer points
-  yesPool         Int @default(0)
-  noPool          Int @default(0)
+  // Invariant: RESOLVED ⇒ winningOutcomeId != null. CANCELED derives from
+  // status alone. Restrict: a winning outcome row can never be deleted from
+  // under its market.
+  winningOutcomeId String?
+  winningOutcome   Outcome? @relation("MarketWinningOutcome", fields: [winningOutcomeId], references: [id], onDelete: Restrict)
+  outcomes         Outcome[] @relation("MarketOutcomes")
+
+  // legacy release-1 columns, dual-written for binary markets — dropped in
+  // the contract release
+  finalOutcome MarketOutcome?
+  yesPool      Int            @default(0)
+  noPool       Int            @default(0)
 
   // economy snapshots frozen at creation; admin-editable until first bet
   rakeBps         Int @default(500)
@@ -143,17 +153,50 @@ model Market {
   @@index([createdById, status])
 }
 
+// One named outcome of a market (2–6 per market, fixed at creation).
+// `pool` is the live parimutuel pool; `poolFinal` is frozen at settlement so
+// the conservation audit stays in typed ints: Σ poolFinal = winningPool + losingPool.
+model Outcome {
+  id        String  @id @default(cuid())
+  marketId  String
+  label     String
+  color     String
+  pool      Int     @default(0)
+  poolFinal Int?
+  sortOrder Int
+
+  market     Market      @relation("MarketOutcomes", fields: [marketId], references: [id], onDelete: Cascade)
+  wonMarkets Market[]    @relation("MarketWinningOutcome")
+  bets       Bet[]
+  poolStakes PoolStake[]
+
+  @@unique([marketId, sortOrder])
+  @@index([marketId])
+}
+
 model Bet {
-  id            String        @id @default(cuid())
-  userId        String
-  marketId      String
-  side          BetSide
-  amount        Int
-  yesPoolAfter  Int
-  noPoolAfter   Int
+  id       String @id @default(cuid())
+  userId   String
+  marketId String
+  amount   Int
+
+  // snapshots frozen at bet time — authoritative for O(1) activity feeds,
+  // and they survive user cascade-deletes (full replay only happens inside
+  // the market-detail chart where all bets are loaded anyway)
+  outcomeId        String
+  outcomePoolAfter Int
+  totalPoolAfter   Int
+
+  // legacy release-1 columns, dual-written for binary markets — dropped in
+  // the contract release
+  side         BetSide?
+  yesPoolAfter Int?
+  noPoolAfter  Int?
+
   createdAt     DateTime      @default(now())
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   market        Market        @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  outcome       Outcome       @relation(fields: [outcomeId], references: [id], onDelete: Cascade)
   ledgerEntries LedgerEntry[]
 
   @@index([marketId, createdAt])
@@ -161,18 +204,26 @@ model Bet {
   @@index([createdAt])
 }
 
+// A user's aggregate stake on one outcome. Rows exist only where amount > 0.
 model PoolStake {
   id        String   @id @default(cuid())
   userId    String
   marketId  String
-  yesStake  Int      @default(0)
-  noStake   Int      @default(0)
+  outcomeId String
+  amount    Int      @default(0)
+
+  // legacy release-1 columns, dual-written for binary markets — dropped in
+  // the contract release
+  yesStake Int @default(0)
+  noStake  Int @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   market    Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  outcome   Outcome  @relation(fields: [outcomeId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, marketId])
+  @@unique([userId, marketId, outcomeId])
   @@index([marketId])
 }
 
@@ -196,23 +247,30 @@ model LedgerEntry {
 }
 
 model MarketResolution {
-  id               String        @id @default(cuid())
-  marketId         String        @unique
-  outcome          MarketOutcome
+  id               String  @id @default(cuid())
+  marketId         String  @unique
+  // null = canceled (refund all); the winning Outcome id otherwise
+  winningOutcomeId String?
   resolutionSource String
   notes            String?
   // settlement audit — burned points are recorded here, not in the user ledger.
-  // Invariant: yesPoolFinal + noPoolFinal === totalPaidOut + rakeAmount + dustAmount
-  yesPoolFinal Int
-  noPoolFinal  Int
+  // Invariant: winningPool + losingPool === totalPaidOut + rakeAmount + dustAmount,
+  // and Σ Outcome.poolFinal === winningPool + losingPool
   winningPool  Int
   losingPool   Int
   rakeAmount   Int
   dustAmount   Int
   totalPaidOut Int
-  createdById  String
-  createdAt    DateTime      @default(now())
-  market       Market        @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  // legacy release-1 columns, dual-written for binary markets — dropped in
+  // the contract release
+  outcome      MarketOutcome?
+  yesPoolFinal Int?
+  noPoolFinal  Int?
+
+  createdById String
+  createdAt   DateTime @default(now())
+  market      Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
 }
 
 model Comment {

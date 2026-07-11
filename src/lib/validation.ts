@@ -8,13 +8,32 @@ const localDateTimeSchema = z
 
 const points = z.coerce.number().int("Whole points only.").min(1);
 
+// shape-loose on purpose: migration-backfilled Outcome ids are SQL-generated
+// uuids, not cuids — membership is asserted inside the transaction anyway
+const outcomeIdSchema = z.string().trim().min(10, "Pick an outcome.");
+
+const outcomesSchema = z
+  .array(
+    z.object({
+      label: z.string().trim().min(1, "Every outcome needs a label.").max(40),
+      color: z.enum(["blue", "orange", "purple", "teal", "amber", "pink", "green", "red"]),
+    }),
+  )
+  .min(2, "A market needs at least 2 outcomes.")
+  .max(6, "Markets max out at 6 outcomes.")
+  .refine(
+    (outcomes) => new Set(outcomes.map((o) => o.label.toLowerCase())).size === outcomes.length,
+    "Outcome labels must be unique.",
+  );
+
 const marketFieldsSchema = z.object({
   title: z.string().trim().min(5, "Question needs at least 5 characters."),
-  description: z.string().trim().min(10, "Description needs at least 10 characters — spell out what counts as YES."),
+  description: z.string().trim().min(10, "Description needs at least 10 characters — spell out what counts for each outcome."),
   category: z.string().trim().min(2, "Category needs at least 2 characters."),
   closeTime: localDateTimeSchema,
   resolveTime: localDateTimeSchema,
   resolutionSource: z.string().trim().min(1, "Resolution source is required."),
+  outcomes: outcomesSchema,
 });
 
 /** All validation problems keyed by field name, for inline form errors. */
@@ -49,7 +68,7 @@ export const rejectProposalSchema = z.object({
 
 export const resolveMarketSchema = z.object({
   marketId: z.string().cuid(),
-  outcome: z.enum(["YES", "NO"]),
+  winningOutcomeId: outcomeIdSchema,
   resolutionSource: z.string().trim().min(5).max(280),
   notes: z.string().trim().max(500).optional(),
 });
@@ -61,7 +80,7 @@ export const cancelMarketSchema = z.object({
 
 export const betSchema = z.object({
   marketId: z.string().cuid(),
-  side: z.enum(["YES", "NO"]),
+  outcomeId: outcomeIdSchema,
   // per-request sanity ceiling; the real per-market cap is enforced in the bet transaction
   amount: points.max(appConfig.maxBetAmount),
 });

@@ -1,13 +1,19 @@
 import clsx from "clsx";
 import { Avatar } from "@/components/ui/avatar";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { OutcomeDot } from "@/components/markets/outcome-dot";
 import { formatPercent0, formatPoints, formatSignedPoints } from "@/lib/format";
+
+export type PositionOutcome = {
+  id: string;
+  label: string;
+  color: string;
+};
 
 export type PositionRow = {
   userId: string;
   name: string;
-  yesStake: number;
-  noStake: number;
+  stakes: Array<{ outcomeId: string; amount: number }>;
   staked: number;
   potShare: number;
   settlementAmount: number;
@@ -17,10 +23,12 @@ export type PositionRow = {
 
 export function PositionsTable({
   rows,
+  outcomes,
   viewerId,
   settled,
 }: {
   rows: PositionRow[];
+  outcomes: PositionOutcome[];
   viewerId: string;
   settled: boolean;
 }) {
@@ -28,14 +36,16 @@ export function PositionsTable({
     return <p className="py-6 text-center text-sm text-muted">No stakes yet — be the first in the pool.</p>;
   }
 
+  const outcomeById = new Map(outcomes.map((outcome) => [outcome.id, outcome]));
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-faint">
             <th className="py-2 pr-3 font-medium">Player</th>
-            <th className="py-2 pr-3 text-right font-medium">Yes</th>
-            <th className="py-2 pr-3 text-right font-medium">No</th>
+            <th className="py-2 pr-3 font-medium">Position</th>
+            <th className="py-2 pr-3 text-right font-medium">Total</th>
             <th className="py-2 pr-3 text-right font-medium">Pot share</th>
             {settled ? (
               <>
@@ -55,12 +65,22 @@ export function PositionsTable({
                   {row.userId === viewerId ? <span className="text-xs text-faint">(you)</span> : null}
                 </span>
               </td>
-              <td className="py-2.5 pr-3 text-right tabular-nums text-yes">
-                {row.yesStake > 0 ? formatPoints(row.yesStake) : "—"}
+              <td className="py-2.5 pr-3">
+                <span className="flex flex-wrap gap-x-3 gap-y-0.5">
+                  {row.stakes
+                    .filter((stake) => stake.amount > 0)
+                    .map((stake) => {
+                      const outcome = outcomeById.get(stake.outcomeId);
+                      return outcome ? (
+                        <span key={stake.outcomeId} className="inline-flex items-center gap-1.5 tabular-nums">
+                          <OutcomeDot color={outcome.color} />
+                          {formatPoints(stake.amount)} on {outcome.label}
+                        </span>
+                      ) : null;
+                    })}
+                </span>
               </td>
-              <td className="py-2.5 pr-3 text-right tabular-nums text-no">
-                {row.noStake > 0 ? formatPoints(row.noStake) : "—"}
-              </td>
+              <td className="py-2.5 pr-3 text-right tabular-nums">{formatPoints(row.staked)}</td>
               <td className="py-2.5 pr-3 text-right tabular-nums text-muted">
                 {formatPercent0(row.potShare)}
               </td>

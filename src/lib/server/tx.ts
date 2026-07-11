@@ -8,6 +8,11 @@ function isSerializationFailure(error: unknown) {
     if (error.code === "P2034") {
       return true;
     }
+    // two first-time bets on the same outcome can race the PoolStake upsert's
+    // (userId, marketId, outcomeId) unique — a retry takes the update branch
+    if (error.code === "P2002") {
+      return true;
+    }
   }
 
   // belt-and-braces: raw Postgres serialization/deadlock SQLSTATEs

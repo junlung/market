@@ -1,6 +1,5 @@
 "use server";
 
-import { BetSide } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireAdminSession, requireSession } from "@/lib/session";
 import { placeBet, recordBetFailure } from "@/lib/server/bet-service";
@@ -37,6 +36,13 @@ function invalidateAppData() {
   revalidatePath("/markets", "layout");
 }
 
+/** Outcome editor rows arrive as parallel outcomeLabel/outcomeColor fields. */
+function readOutcomeFields(formData: FormData) {
+  const labels = formData.getAll("outcomeLabel").map(String);
+  const colors = formData.getAll("outcomeColor").map(String);
+  return labels.map((label, index) => ({ label, color: colors[index] ?? "" }));
+}
+
 function parseMarketForm(formData: FormData) {
   return marketFormSchema.safeParse({
     title: formData.get("title"),
@@ -45,6 +51,7 @@ function parseMarketForm(formData: FormData) {
     closeTime: formData.get("closeTime"),
     resolveTime: formData.get("resolveTime"),
     resolutionSource: formData.get("resolutionSource"),
+    outcomes: readOutcomeFields(formData),
     maxStakePerUser: formData.get("maxStakePerUser") || undefined,
     rakeBps: formData.get("rakeBps") || undefined,
   });
@@ -69,6 +76,7 @@ export async function createMarketAction(_: MarketFormState, formData: FormData)
         resolveTime: new Date(parsed.data.resolveTime),
         resolutionSource: parsed.data.resolutionSource,
       },
+      outcomes: parsed.data.outcomes,
       maxStakePerUser: parsed.data.maxStakePerUser,
       rakeBps: parsed.data.rakeBps,
       openNow: formData.get("openNow") === "true",
@@ -97,6 +105,7 @@ export async function updateMarketAction(_: MarketFormState, formData: FormData)
       closeTime: new Date(parsed.data.closeTime),
       resolveTime: new Date(parsed.data.resolveTime),
       resolutionSource: parsed.data.resolutionSource,
+      outcomes: parsed.data.outcomes,
       maxStakePerUser: parsed.data.maxStakePerUser,
       rakeBps: parsed.data.rakeBps,
     });
@@ -133,7 +142,7 @@ export async function resolveMarketAction(_: ActionResult, formData: FormData): 
   const session = await requireAdminSession();
   const parsed = resolveMarketSchema.safeParse({
     marketId: formData.get("marketId"),
-    outcome: formData.get("outcome"),
+    winningOutcomeId: formData.get("winningOutcomeId"),
     resolutionSource: formData.get("resolutionSource"),
     notes: formData.get("notes") || undefined,
   });
@@ -146,7 +155,7 @@ export async function resolveMarketAction(_: ActionResult, formData: FormData): 
     await resolveMarket(
       parsed.data.marketId,
       session.user.id,
-      parsed.data.outcome,
+      parsed.data.winningOutcomeId,
       parsed.data.resolutionSource,
       parsed.data.notes,
     );
@@ -180,8 +189,7 @@ export async function cancelMarketAction(_: ActionResult, formData: FormData): P
 }
 
 export type PlaceBetActionResult = ActionResult & {
-  yesPool?: number;
-  noPool?: number;
+  pools?: Array<{ outcomeId: string; pool: number }>;
   stakeTotal?: number;
 };
 
@@ -192,7 +200,7 @@ export async function placeBetAction(
   const session = await requireSession();
   const parsed = betSchema.safeParse({
     marketId: formData.get("marketId"),
-    side: formData.get("side"),
+    outcomeId: formData.get("outcomeId"),
     amount: formData.get("amount"),
   });
 
@@ -200,19 +208,20 @@ export async function placeBetAction(
     return { error: parsed.error.issues[0]?.message ?? "Bet input is invalid." };
   }
 
+  const outcomeLabel = String(formData.get("outcomeLabel") ?? "your pick");
+
   try {
     const result = await placeBet({
       userId: session.user.id,
       marketId: parsed.data.marketId,
-      side: parsed.data.side as BetSide,
+      outcomeId: parsed.data.outcomeId,
       amount: parsed.data.amount,
     });
     invalidateAppData();
     revalidatePath(`/markets/${parsed.data.marketId}`);
     return {
-      success: `You're in — ${parsed.data.amount} points on ${parsed.data.side}.`,
-      yesPool: result.yesPool,
-      noPool: result.noPool,
+      success: `You're in — ${parsed.data.amount} points on ${outcomeLabel}.`,
+      pools: result.pools,
       stakeTotal: result.stakeTotal,
     };
   } catch (error) {

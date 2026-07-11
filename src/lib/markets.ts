@@ -1,6 +1,15 @@
-import { MarketOutcome, MarketStatus } from "@prisma/client";
+import { MarketStatus } from "@prisma/client";
 import { appConfig } from "@/lib/config";
 import { getOdds } from "@/lib/parimutuel";
+import { isOutcomeColor } from "@/lib/outcome-colors";
+
+export const MIN_OUTCOMES = 2;
+export const MAX_OUTCOMES = 6;
+
+export type OutcomeDraft = {
+  label: string;
+  color: string;
+};
 
 export function isMarketEditable(market: {
   status: MarketStatus;
@@ -23,6 +32,31 @@ export function validateMarketSchedule(closeTime: Date, resolveTime: Date) {
   }
 }
 
+export function validateOutcomeDrafts(outcomes: OutcomeDraft[]) {
+  if (outcomes.length < MIN_OUTCOMES || outcomes.length > MAX_OUTCOMES) {
+    throw new Error(`Markets need ${MIN_OUTCOMES}–${MAX_OUTCOMES} outcomes.`);
+  }
+
+  const seen = new Set<string>();
+  for (const outcome of outcomes) {
+    const label = outcome.label.trim();
+    if (!label) {
+      throw new Error("Every outcome needs a label.");
+    }
+    if (label.length > 40) {
+      throw new Error("Outcome labels max out at 40 characters.");
+    }
+    const key = label.toLowerCase();
+    if (seen.has(key)) {
+      throw new Error(`Duplicate outcome label: ${label}`);
+    }
+    seen.add(key);
+    if (!isOutcomeColor(outcome.color)) {
+      throw new Error(`Unknown outcome color: ${outcome.color}`);
+    }
+  }
+}
+
 export function validateMarketDraft(input: {
   title: string;
   description: string;
@@ -39,24 +73,52 @@ export function validateMarketDraft(input: {
   validateMarketSchedule(input.closeTime, input.resolveTime);
 }
 
-export function getMarketOdds(market: { yesPool: number; noPool: number }) {
-  const odds = getOdds({ yesPool: market.yesPool, noPool: market.noPool });
+export type OutcomeView = {
+  id: string;
+  label: string;
+  color: string;
+  sortOrder: number;
+  pool: number;
+  poolFinal: number | null;
+  probability: number;
+  multiplier: number | null;
+};
 
-  return {
-    yesProbability: odds.yesProbability,
-    noProbability: odds.noProbability,
-    yesMultiplier: odds.yesMultiplier,
-    noMultiplier: odds.noMultiplier,
-    pot: odds.total,
-  };
+/**
+ * Enrich a market's outcome rows with implied probabilities (1/N when empty).
+ * `leader` is the highest-probability outcome, ties broken by sortOrder.
+ */
+export function getMarketOdds(
+  outcomes: Array<{
+    id: string;
+    label: string;
+    color: string;
+    sortOrder: number;
+    pool: number;
+    poolFinal?: number | null;
+  }>,
+) {
+  const sorted = [...outcomes].sort((a, b) => a.sortOrder - b.sortOrder);
+  const odds = getOdds(sorted.map((outcome) => outcome.pool));
+
+  const views: OutcomeView[] = sorted.map((outcome, index) => ({
+    id: outcome.id,
+    label: outcome.label,
+    color: outcome.color,
+    sortOrder: outcome.sortOrder,
+    pool: outcome.pool,
+    poolFinal: outcome.poolFinal ?? null,
+    probability: odds.probabilities[index],
+    multiplier: odds.multipliers[index],
+  }));
+
+  const leader = views.reduce((best, view) => (view.probability > best.probability ? view : best), views[0]);
+
+  return { outcomes: views, leader, pot: odds.total };
 }
 
 export function getMarketStatusLabel(status: MarketStatus) {
   return status.toLowerCase();
-}
-
-export function getOutcomeLabel(outcome: MarketOutcome | null) {
-  return outcome ? outcome.toLowerCase() : "pending";
 }
 
 export function getMarketCloseWarning(closeTime: Date) {

@@ -7,7 +7,9 @@ import { ProbabilityChip } from "@/components/ui/probability-chip";
 import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { buttonClasses } from "@/components/ui/button";
+import { OutcomeDot } from "@/components/markets/outcome-dot";
 import { formatDateTime, formatPoints, formatSignedPoints } from "@/lib/format";
+import { outcomeColorVar } from "@/lib/outcome-colors";
 import { getActiveStakes, getResolvedStakes } from "@/lib/server/market-service";
 import { requireSession } from "@/lib/session";
 
@@ -19,7 +21,7 @@ export default async function PortfolioPage() {
   ]);
 
   const atStake = active.reduce((sum, stake) => sum + stake.staked, 0);
-  const ifAllHit = active.reduce((sum, stake) => sum + stake.yesIfWon + stake.noIfWon, 0);
+  const ifAllHit = active.reduce((sum, stake) => sum + stake.ifAllWon, 0);
   const lifetimeProfit = resolved.reduce((sum, stake) => sum + stake.profit, 0);
 
   return (
@@ -69,29 +71,33 @@ export default async function PortfolioPage() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold">{stake.title}</p>
                   <p className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted tabular-nums">
-                    {stake.yesStake > 0 ? (
-                      <span>
-                        <span className="font-semibold text-yes">YES</span> {formatPoints(stake.yesStake)} pts
+                    {stake.positions.map((position) => (
+                      <span key={position.outcomeId} className="inline-flex items-center gap-1.5">
+                        <OutcomeDot color={position.color} />
+                        <span
+                          className="max-w-28 truncate font-semibold"
+                          style={{ color: outcomeColorVar(position.color) }}
+                        >
+                          {position.label}
+                        </span>{" "}
+                        {formatPoints(position.amount)} pts
                         {" · if it hits "}
                         <span className="font-semibold text-foreground">
-                          {formatSignedPoints(stake.yesIfWon - stake.yesStake)}
+                          {formatSignedPoints(position.ifWon - position.amount)}
                         </span>
                       </span>
-                    ) : null}
-                    {stake.noStake > 0 ? (
-                      <span>
-                        <span className="font-semibold text-no">NO</span> {formatPoints(stake.noStake)} pts
-                        {" · if it hits "}
-                        <span className="font-semibold text-foreground">
-                          {formatSignedPoints(stake.noIfWon - stake.noStake)}
-                        </span>
-                      </span>
-                    ) : null}
+                    ))}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
                   {stake.status === "CLOSED" ? <StatusBadge label="closed" /> : null}
-                  <ProbabilityChip probability={stake.yesProbability} size="md" showLabel />
+                  <ProbabilityChip
+                    probability={stake.leader.probability}
+                    color={stake.leader.color}
+                    label={stake.leader.label}
+                    size="md"
+                    showLabel
+                  />
                 </div>
               </Link>
             ))}
@@ -118,12 +124,11 @@ export default async function PortfolioPage() {
                   <p className="mt-0.5 text-xs text-muted">
                     {stake.resolvedAt ? formatDateTime(stake.resolvedAt) : ""} · staked{" "}
                     {formatPoints(stake.staked)} pts
+                    {stake.winningLabel ? ` · winner: ${stake.winningLabel}` : ""}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
-                  <StatusBadge
-                    label={stake.outcome === "CANCELED" ? "refunded" : stake.won ? "won" : "lost"}
-                  />
+                  <StatusBadge label={stake.canceled ? "refunded" : stake.won ? "won" : "lost"} />
                   <span
                     className={clsx(
                       "text-sm font-bold tabular-nums",

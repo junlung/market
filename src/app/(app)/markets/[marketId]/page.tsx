@@ -6,6 +6,7 @@ import { BetSlip } from "@/components/markets/bet-slip";
 import { ViewerPositionCard } from "@/components/markets/viewer-position";
 import { CommentThread } from "@/components/markets/comment-thread";
 import { OddsChart } from "@/components/markets/odds-chart";
+import { OutcomeDot } from "@/components/markets/outcome-dot";
 import { PositionsTable } from "@/components/markets/positions-table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ProbabilityChip } from "@/components/ui/probability-chip";
@@ -20,18 +21,19 @@ import {
   formatSignedPoints,
 } from "@/lib/format";
 import { getMarketStatusLabel } from "@/lib/markets";
+import { outcomeColorBg, outcomeColorVar } from "@/lib/outcome-colors";
 import { getMarketDetail, getUserBalance } from "@/lib/server/market-service";
 import { requireSession } from "@/lib/session";
 
 type Props = {
   params: Promise<{ marketId: string }>;
-  searchParams: Promise<{ side?: string; tab?: string }>;
+  searchParams: Promise<{ side?: string; outcome?: string; tab?: string }>;
 };
 
 export default async function MarketDetailPage({ params, searchParams }: Props) {
   const session = await requireSession();
   const { marketId } = await params;
-  const { side } = await searchParams;
+  const { side, outcome: outcomeParam } = await searchParams;
 
   const [market, balance] = await Promise.all([
     getMarketDetail(marketId, session.user.id),
@@ -43,14 +45,49 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
   }
 
   const isOpen = market.status === MarketStatus.OPEN && market.closeTime > new Date();
-  const isSettled = market.status === MarketStatus.RESOLVED || market.status === MarketStatus.CANCELED;
-  const viewerStakeTotal = (market.viewerStake?.yesStake ?? 0) + (market.viewerStake?.noStake ?? 0);
+  const isCanceled = market.status === MarketStatus.CANCELED;
+  const isSettled = market.status === MarketStatus.RESOLVED || isCanceled;
+  const isBinary = market.outcomes.length === 2;
+  const viewerStakeTotal = market.viewerStakes.reduce((sum, stake) => sum + stake.amount, 0);
 
-  const openingProbability = market.oddsHistory[0]?.p ?? 0.5;
-  const delta = Math.round((market.yesProbability - openingProbability) * 100);
+  // legacy ?side=YES|NO deep links map to sortOrder 0/1
+  const sideOutcomeId =
+    side === "YES" ? market.outcomes[0]?.id : side === "NO" ? market.outcomes[1]?.id : undefined;
+  const initialOutcomeId =
+    market.outcomes.find((candidate) => candidate.id === outcomeParam)?.id ?? sideOutcomeId;
+
+  const headline = isBinary ? market.outcomes[0] : market.leader;
+  const openingProbability = market.oddsHistory[0]?.probs[headline.sortOrder] ?? 0;
+  const delta = Math.round((headline.probability - openingProbability) * 100);
 
   const viewerSettled =
     market.positions.find((position) => position.userId === session.user.id) ?? null;
+
+  const betSlip = (
+    <BetSlip
+      marketId={market.id}
+      outcomes={market.outcomes.map((outcome) => ({
+        id: outcome.id,
+        label: outcome.label,
+        color: outcome.color,
+        pool: outcome.pool,
+      }))}
+      rakeBps={market.rakeBps}
+      maxStakePerUser={market.maxStakePerUser}
+      balance={balance}
+      viewerStakeTotal={viewerStakeTotal}
+      initialOutcomeId={initialOutcomeId}
+    />
+  );
+
+  const viewerPosition =
+    market.viewerStakes.length > 0 && !isSettled ? (
+      <ViewerPositionCard
+        stakes={market.viewerStakes}
+        outcomes={market.outcomes}
+        rakeBps={market.rakeBps}
+      />
+    ) : null;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -80,18 +117,20 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
 
         {isSettled ? (
           <div
-            className={
-              market.finalOutcome === "YES"
-                ? "rounded-xl bg-yes-bg p-4 text-yes"
-                : market.finalOutcome === "NO"
-                  ? "rounded-xl bg-no-bg p-4 text-no"
-                  : "rounded-xl bg-surface-2 p-4 text-muted"
+            className="rounded-xl p-4"
+            style={
+              isCanceled
+                ? undefined
+                : {
+                    background: outcomeColorBg(market.winningOutcome?.color ?? "blue", 12),
+                    color: outcomeColorVar(market.winningOutcome?.color ?? "blue"),
+                  }
             }
           >
-            <p className="text-lg font-bold">
-              {market.finalOutcome === "CANCELED"
+            <p className={isCanceled ? "text-lg font-bold text-muted" : "text-lg font-bold"}>
+              {isCanceled
                 ? "Canceled — all stakes refunded"
-                : `Resolved ${market.finalOutcome} ✓`}
+                : `Resolved: ${market.winningOutcome?.label} ✓`}
             </p>
             {market.resolution ? (
               <p className="mt-1 text-xs opacity-80">
@@ -109,7 +148,17 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
           </div>
         ) : (
           <div className="flex items-end gap-3">
-            <ProbabilityChip probability={market.yesProbability} size="xl" showLabel />
+            {isBinary ? (
+              <ProbabilityChip probability={headline.probability} size="xl" showLabel />
+            ) : (
+              <ProbabilityChip
+                probability={headline.probability}
+                color={headline.color}
+                label={headline.label}
+                size="xl"
+                showLabel
+              />
+            )}
             {market.betCount > 0 && delta !== 0 ? (
               <span
                 className={
@@ -124,6 +173,7 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
 
         {market.betCount > 0 ? (
           <OddsChart
+            outcomes={market.outcomes}
             points={market.oddsHistory}
             endTime={Math.min(market.closeTime.getTime(), Date.now())}
           />
@@ -131,32 +181,13 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
           <EmptyState
             icon={Flame}
             title="No bets yet"
-            description="The pool opens at 50/50. First bet moves the odds."
+            description={`The pool opens at ${formatChance(1 / market.outcomes.length)} per outcome. First bet moves the odds.`}
           />
         )}
 
         <div className="space-y-4 lg:hidden">
-          {isOpen ? (
-            <BetSlip
-              marketId={market.id}
-              yesPool={market.yesPool}
-              noPool={market.noPool}
-              rakeBps={market.rakeBps}
-              maxStakePerUser={market.maxStakePerUser}
-              balance={balance}
-              viewerStakeTotal={viewerStakeTotal}
-              initialSide={side === "NO" ? "NO" : side === "YES" ? "YES" : undefined}
-            />
-          ) : null}
-          {market.viewerStake && viewerStakeTotal > 0 && !isSettled ? (
-            <ViewerPositionCard
-              yesStake={market.viewerStake.yesStake}
-              noStake={market.viewerStake.noStake}
-              yesPool={market.yesPool}
-              noPool={market.noPool}
-              rakeBps={market.rakeBps}
-            />
-          ) : null}
+          {isOpen ? betSlip : null}
+          {viewerPosition}
         </div>
 
         <Tabs
@@ -181,7 +212,12 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
               />
             ),
             positions: (
-              <PositionsTable rows={market.positions} viewerId={session.user.id} settled={isSettled} />
+              <PositionsTable
+                rows={market.positions}
+                outcomes={market.outcomes}
+                viewerId={session.user.id}
+                settled={isSettled}
+              />
             ),
             rules: (
               <div className="space-y-4 text-sm">
@@ -204,9 +240,10 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
                   <div className="rounded-lg bg-surface-2 p-3">
                     <dt className="text-xs font-medium text-faint">The fine print</dt>
                     <dd className="mt-1 text-muted">
-                      Winners split the losing pool pro-rata to stake.{" "}
+                      Exactly one outcome wins; winners split everyone else&apos;s points pro-rata
+                      to stake.{" "}
                       {market.rakeBps > 0
-                        ? `${market.rakeBps / 100}% of the losing pool is burned — the house always wins a little.`
+                        ? `${market.rakeBps / 100}% of the losing pools is burned — the house always wins a little.`
                         : "No rake on this one."}{" "}
                       Max {formatPoints(market.maxStakePerUser)} pts per player.
                     </dd>
@@ -221,16 +258,7 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
       <div className="hidden lg:block">
         <div className="sticky top-[72px] space-y-4">
           {isOpen ? (
-            <BetSlip
-              marketId={market.id}
-              yesPool={market.yesPool}
-              noPool={market.noPool}
-              rakeBps={market.rakeBps}
-              maxStakePerUser={market.maxStakePerUser}
-              balance={balance}
-              viewerStakeTotal={viewerStakeTotal}
-              initialSide={side === "NO" ? "NO" : side === "YES" ? "YES" : undefined}
-            />
+            betSlip
           ) : (
             <div className="rounded-xl border border-border bg-surface p-5 text-center">
               <p className="text-sm font-semibold">
@@ -238,38 +266,34 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
               </p>
               <p className="mt-1 text-xs text-muted">
                 {isSettled
-                  ? market.finalOutcome === "CANCELED"
+                  ? isCanceled
                     ? "All stakes were refunded."
-                    : `Resolved ${market.finalOutcome}.`
+                    : `Resolved: ${market.winningOutcome?.label}.`
                   : `Resolves ${formatDateTime(market.resolveTime)}.`}
               </p>
             </div>
           )}
 
-          {market.viewerStake && viewerStakeTotal > 0 && !isSettled ? (
-            <ViewerPositionCard
-              yesStake={market.viewerStake.yesStake}
-              noStake={market.viewerStake.noStake}
-              yesPool={market.yesPool}
-              noPool={market.noPool}
-              rakeBps={market.rakeBps}
-            />
-          ) : null}
+          {viewerPosition}
 
           <div className="rounded-xl border border-border bg-surface p-4 text-xs text-muted">
-            <p className="flex justify-between tabular-nums">
-              <span>Yes pool</span>
-              <span className="font-semibold text-yes">{formatPoints(market.yesPool)} pts</span>
-            </p>
-            <p className="mt-1 flex justify-between tabular-nums">
-              <span>No pool</span>
-              <span className="font-semibold text-no">{formatPoints(market.noPool)} pts</span>
-            </p>
-            <p className="mt-1 flex justify-between tabular-nums">
-              <span>Implied chance</span>
-              <span className="font-semibold text-foreground">
-                {formatChance(market.yesProbability)} yes
-              </span>
+            {market.outcomes.map((outcome) => (
+              <p key={outcome.id} className="mt-1 flex items-center justify-between gap-2 tabular-nums first:mt-0">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <OutcomeDot color={outcome.color} />
+                  <span className="truncate">{outcome.label}</span>
+                </span>
+                <span className="shrink-0">
+                  <span className="font-semibold" style={{ color: outcomeColorVar(outcome.color) }}>
+                    {formatPoints(outcome.pool)} pts
+                  </span>{" "}
+                  · {formatChance(outcome.probability)}
+                </span>
+              </p>
+            ))}
+            <p className="mt-2 flex justify-between border-t border-border pt-2 tabular-nums">
+              <span>Total pot</span>
+              <span className="font-semibold text-foreground">{formatPoints(market.pot)} pts</span>
             </p>
           </div>
         </div>
