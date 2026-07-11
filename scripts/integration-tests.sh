@@ -8,7 +8,9 @@ if [ -z "$TEST_DATABASE_URL" ]; then
   exit 1
 fi
 
+# both URLs: the app connects via DATABASE_URL, the CLI (db push) via directUrl
 export DATABASE_URL="$TEST_DATABASE_URL"
+export DATABASE_URL_UNPOOLED="$TEST_DATABASE_URL"
 export INTEGRATION_TESTS=1
 
 # plain push (no --force-reset): the DB is a dedicated throwaway and the
