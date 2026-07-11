@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Compass, Gift, TrendingUp, Trophy } from "lucide-react";
+import { Compass, Gift, Plus, TrendingUp, Trophy } from "lucide-react";
 import { CategoryTabs } from "@/components/markets/category-tabs";
 import { MarketCard } from "@/components/markets/market-card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -51,6 +51,11 @@ export default async function DashboardPage({
         <span className="inline-flex items-center gap-1.5">
           <Gift className="size-4 text-yes" aria-hidden />
           Next allowance {formatRelativeTime(nextAllowance)}
+        </span>
+        <span className="ml-auto">
+          <Link href="/markets/new" className={buttonClasses("primary", "sm")}>
+            <Plus className="size-4" aria-hidden /> Propose a market
+          </Link>
         </span>
       </div>
 

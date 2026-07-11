@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { Coins } from "lucide-react";
+import { Coins, Plus } from "lucide-react";
 import { requireSession } from "@/lib/session";
 import { formatPoints } from "@/lib/format";
 import { ensureWeeklyAllowance, hasCurrentWeekAllowance } from "@/lib/server/allowance-service";
@@ -9,6 +9,7 @@ import { NavLinks } from "@/components/layout/nav-links";
 import { SearchBox } from "@/components/layout/search-box";
 import { UserMenu } from "@/components/layout/user-menu";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { buttonClasses } from "@/components/ui/button";
 
 const NAV_LINKS: Array<{ href: Route; label: string }> = [
   { href: "/dashboard", label: "Markets" },
@@ -41,6 +42,10 @@ export async function TopNav() {
         <div className="flex-1" />
 
         <NavLinks links={NAV_LINKS} />
+
+        <Link href="/markets/new" className={buttonClasses("primary", "sm", "max-md:hidden")}>
+          <Plus className="size-4" aria-hidden /> Propose
+        </Link>
 
         <Link
           href="/account"
