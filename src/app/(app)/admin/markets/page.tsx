@@ -1,3 +1,4 @@
+import { LocalTime } from "@/components/ui/local-time";
 import Link from "next/link";
 import type { Route } from "next";
 import clsx from "clsx";
@@ -6,7 +7,7 @@ import { ProposalReview } from "@/components/admin/proposal-review";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { buttonClasses } from "@/components/ui/button";
-import { formatChance, formatDateTime, formatPoints } from "@/lib/format";
+import { formatChance, formatPoints } from "@/lib/format";
 import { outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { getAdminMarkets } from "@/lib/server/market-service";
 import { requireAdminSession } from "@/lib/session";
@@ -93,7 +94,7 @@ export default async function AdminMarketsPage({
                     {market.leaderTied ? "even" : outcomeDisplayLabel(market.leader)} ·{" "}
                     {market.outcomes.length} outcomes · {formatPoints(market.pot)} pt pot ·{" "}
                     {market.betCount} bet{market.betCount === 1 ? "" : "s"} · closes{" "}
-                    {formatDateTime(market.closeTime)}
+                    <LocalTime date={market.closeTime} />
                   </p>
                 </div>
 

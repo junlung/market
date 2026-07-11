@@ -1,3 +1,4 @@
+import { LocalTime } from "@/components/ui/local-time";
 import { notFound } from "next/navigation";
 import { MarketStatus } from "@prisma/client";
 import { Flame, ScrollText, Trophy, Users } from "lucide-react";
@@ -16,7 +17,6 @@ import { Tabs } from "@/components/ui/tabs";
 import {
   formatChance,
   formatCompactPoints,
-  formatDateTime,
   formatPoints,
   formatSignedPoints,
 } from "@/lib/format";
@@ -111,8 +111,8 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
               <Users className="size-3.5" aria-hidden />
               {market.participantCount} bettor{market.participantCount === 1 ? "" : "s"}
             </span>
-            <span>Closes {formatDateTime(market.closeTime)}</span>
-            <span>Resolves {formatDateTime(market.resolveTime)}</span>
+            <span>Closes <LocalTime date={market.closeTime} /></span>
+            <span>Resolves <LocalTime date={market.resolveTime} /></span>
           </div>
         </div>
 
@@ -234,11 +234,11 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
                   </div>
                   <div className="rounded-lg bg-surface-2 p-3">
                     <dt className="text-xs font-medium text-faint">Betting closes</dt>
-                    <dd className="mt-1">{formatDateTime(market.closeTime)}</dd>
+                    <dd className="mt-1"><LocalTime date={market.closeTime} /></dd>
                   </div>
                   <div className="rounded-lg bg-surface-2 p-3">
                     <dt className="text-xs font-medium text-faint">Resolves by</dt>
-                    <dd className="mt-1">{formatDateTime(market.resolveTime)}</dd>
+                    <dd className="mt-1"><LocalTime date={market.resolveTime} /></dd>
                   </div>
                   <div className="rounded-lg bg-surface-2 p-3">
                     <dt className="text-xs font-medium text-faint">The fine print</dt>
@@ -272,7 +272,11 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
                   ? isCanceled
                     ? "All stakes were refunded."
                     : `Resolved: ${market.winningOutcome ? outcomeDisplayLabel(market.winningOutcome) : ""}.`
-                  : `Resolves ${formatDateTime(market.resolveTime)}.`}
+                  : (
+                      <>
+                        Resolves <LocalTime date={market.resolveTime} />.
+                      </>
+                    )}
               </p>
             </div>
           )}

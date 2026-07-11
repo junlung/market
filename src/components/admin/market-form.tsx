@@ -47,6 +47,12 @@ function toInputDateTime(value: Date) {
   return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
+/** datetime-local string, interpreted in this browser's zone → ISO instant. */
+function toIsoInstant(local: string) {
+  const parsed = new Date(local);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+}
+
 function addHours(base: Date, hours: number) {
   const next = new Date(base);
   next.setHours(next.getHours() + hours);
@@ -308,10 +314,18 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
       <div className="grid gap-4 md:grid-cols-2">
         <div>
           <Label htmlFor="mf-close">Betting closes</Label>
+          {/* datetime-local strings carry no timezone — the server would parse
+              them in ITS zone (UTC on Vercel). Convert to an ISO instant here
+              in the browser, where the user's zone is known. */}
+          <input
+            type="hidden"
+            name="closeTime"
+            value={toIsoInstant(closeTime)}
+            suppressHydrationWarning
+          />
           <Input
             id="mf-close"
             type="datetime-local"
-            name="closeTime"
             value={closeTime}
             onChange={(event) => setCloseTime(event.target.value)}
             required
@@ -321,10 +335,15 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
         </div>
         <div>
           <Label htmlFor="mf-resolve">Resolves by</Label>
+          <input
+            type="hidden"
+            name="resolveTime"
+            value={toIsoInstant(resolveTime)}
+            suppressHydrationWarning
+          />
           <Input
             id="mf-resolve"
             type="datetime-local"
-            name="resolveTime"
             value={resolveTime}
             onChange={(event) => setResolveTime(event.target.value)}
             required

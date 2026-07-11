@@ -1,3 +1,4 @@
+import { LocalTime } from "@/components/ui/local-time";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MarketStatus } from "@prisma/client";
@@ -11,7 +12,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { buttonClasses } from "@/components/ui/button";
-import { formatChance, formatDateTime, formatPoints, formatSignedPoints } from "@/lib/format";
+import { formatChance, formatPoints, formatSignedPoints } from "@/lib/format";
 import { outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { isMarketEditable } from "@/lib/markets";
 import { getAdminMarketDetail, previewSettlement } from "@/lib/server/market-service";
@@ -88,8 +89,8 @@ export default async function AdminMarketDetailPage({ params }: Props) {
           value={`${formatPoints(market.pot)} pts`}
           hint={`${market.outcomes.length} outcomes`}
         />
-        <StatCard label="Closes" value={formatDateTime(market.closeTime)} />
-        <StatCard label="Resolves" value={formatDateTime(market.resolveTime)} />
+        <StatCard label="Closes" value={<LocalTime date={market.closeTime} />} />
+        <StatCard label="Resolves" value={<LocalTime date={market.resolveTime} />} />
       </div>
 
       <div className="rounded-xl border border-border bg-surface p-4">
@@ -306,7 +307,7 @@ export default async function AdminMarketDetailPage({ params }: Props) {
                 market.appLogs.map((log) => (
                   <div key={log.id} className="rounded-lg bg-surface-2 px-3 py-2 text-xs">
                     <p className="font-medium">{log.message}</p>
-                    <p className="mt-0.5 text-faint">{formatDateTime(log.createdAt)}</p>
+                    <p className="mt-0.5 text-faint"><LocalTime date={log.createdAt} /></p>
                   </div>
                 ))
               )}

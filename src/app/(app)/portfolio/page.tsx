@@ -1,3 +1,4 @@
+import { LocalTime } from "@/components/ui/local-time";
 import Link from "next/link";
 import { Wallet } from "lucide-react";
 import clsx from "clsx";
@@ -8,7 +9,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { buttonClasses } from "@/components/ui/button";
 import { OutcomeDot } from "@/components/markets/outcome-dot";
-import { formatDateTime, formatPoints, formatSignedPoints } from "@/lib/format";
+import { formatPoints, formatSignedPoints } from "@/lib/format";
 import { outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { getActiveStakes, getResolvedStakes } from "@/lib/server/market-service";
 import { requireSession } from "@/lib/session";
@@ -126,7 +127,7 @@ export default async function PortfolioPage() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold">{stake.title}</p>
                   <p className="mt-0.5 text-xs text-muted">
-                    {stake.resolvedAt ? formatDateTime(stake.resolvedAt) : ""} · staked{" "}
+                    {stake.resolvedAt ? <LocalTime date={stake.resolvedAt} /> : ""} · staked{" "}
                     {formatPoints(stake.staked)} pts
                     {stake.winningLabel ? ` · winner: ${stake.winningLabel}` : ""}
                   </p>

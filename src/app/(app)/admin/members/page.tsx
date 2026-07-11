@@ -1,10 +1,11 @@
+import { LocalTime } from "@/components/ui/local-time";
 import { UserCheck } from "lucide-react";
 import { MemberReview } from "@/components/admin/member-review";
 import { Avatar } from "@/components/ui/avatar";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { formatDateTime, formatPoints } from "@/lib/format";
+import { formatPoints } from "@/lib/format";
 import { getMembersOverview } from "@/lib/server/member-service";
 import { requireAdminSession } from "@/lib/session";
 
@@ -56,7 +57,7 @@ export default async function AdminMembersPage() {
                     </p>
                     <p className="text-xs text-muted">{user.email}</p>
                     <p className="mt-0.5 text-xs text-faint">
-                      Signed up {formatDateTime(user.createdAt)}
+                      Signed up <LocalTime date={user.createdAt} />
                       {user.vouchedBy ? (
                         <>
                           {" · "}
@@ -91,7 +92,7 @@ export default async function AdminMembersPage() {
                     ) : null}
                   </p>
                   <p className="text-xs text-faint">
-                    {user.email} · joined {formatDateTime(user.createdAt)}
+                    {user.email} · joined <LocalTime date={user.createdAt} />
                   </p>
                 </div>
               </div>
@@ -118,7 +119,7 @@ export default async function AdminMembersPage() {
                     <p className="truncate text-sm font-medium">{user.name}</p>
                     <p className="text-xs text-muted">{user.email}</p>
                     <p className="mt-0.5 text-xs text-faint">
-                      Rejected {user.reviewedAt ? formatDateTime(user.reviewedAt) : ""}
+                      Rejected {user.reviewedAt ? <LocalTime date={user.reviewedAt} /> : ""}
                       {user.reviewNote ? ` — "${user.reviewNote}"` : ""}
                     </p>
                   </div>

@@ -1,10 +1,11 @@
+import { LocalTime } from "@/components/ui/local-time";
 import { Gift } from "lucide-react";
 import clsx from "clsx";
 import { Avatar } from "@/components/ui/avatar";
 import { PageHeader } from "@/components/ui/page-header";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { appConfig } from "@/lib/config";
-import { formatDateTime, formatPoints, formatRelativeTime, formatSignedPoints } from "@/lib/format";
+import { formatPoints, formatRelativeTime, formatSignedPoints } from "@/lib/format";
 import { getNextIsoWeekStart } from "@/lib/allowance";
 import { hasCurrentWeekAllowance } from "@/lib/server/allowance-service";
 import { getBalanceBreakdown, getLedgerEntries } from "@/lib/server/market-service";
@@ -114,7 +115,7 @@ export default async function AccountPage() {
                       {formatSignedPoints(entry.amount)}
                     </td>
                     <td className="px-4 py-2.5 text-right text-xs text-muted">
-                      {formatDateTime(entry.createdAt)}
+                      <LocalTime date={entry.createdAt} />
                     </td>
                   </tr>
                 ))}

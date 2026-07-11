@@ -1,9 +1,10 @@
+import { LocalTime } from "@/components/ui/local-time";
 import Link from "next/link";
 import { ReceiptText } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { OutcomeDot } from "@/components/markets/outcome-dot";
-import { formatDateTime, formatPoints } from "@/lib/format";
+import { formatPoints } from "@/lib/format";
 import { outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { getBetHistory } from "@/lib/server/market-service";
 import { requireSession } from "@/lib/session";
@@ -65,7 +66,7 @@ export default async function HistoryPage() {
                       : "—"}
                   </td>
                   <td className="px-4 py-2.5 text-right text-xs text-muted">
-                    {formatDateTime(bet.createdAt)}
+                    <LocalTime date={bet.createdAt} />
                   </td>
                 </tr>
               ))}
