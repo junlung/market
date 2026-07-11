@@ -46,6 +46,15 @@ const EMOJI_GROUPS: Array<{ name: string; emojis: string[] }> = [
     ],
   },
   {
+    name: "Flags",
+    emojis: [
+      "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "🏴󠁧󠁢󠁳󠁣󠁴󠁿", "🏴󠁧󠁢󠁷󠁬󠁳󠁿", "🇬🇧", "🇮🇪", "🇺🇸", "🇨🇦", "🇲🇽", "🇧🇷", "🇦🇷", "🇫🇷", "🇩🇪",
+      "🇪🇸", "🇮🇹", "🇵🇹", "🇳🇱", "🇧🇪", "🇩🇰", "🇸🇪", "🇳🇴", "🇵🇱", "🇬🇷", "🇹🇷", "🇯🇵",
+      "🇰🇷", "🇨🇳", "🇮🇳", "🇦🇺", "🇳🇿", "🇿🇦", "🇳🇬", "🇪🇬", "🇸🇦", "🇺🇦", "🏁", "🏳️",
+      "🏴‍☠️", "🏳️‍🌈", "🚩", "🎌",
+    ],
+  },
+  {
     name: "Things & symbols",
     emojis: [
       "💰", "💵", "💎", "🔥", "⚡", "💥", "❄️", "🌧️", "☀️", "🌈", "⭐", "✨",
@@ -130,7 +139,7 @@ export function EmojiPicker({
                 value={value}
                 onChange={(event) => onChange(event.target.value)}
                 placeholder="…or type one"
-                maxLength={8}
+                maxLength={64}
                 className="h-8 min-w-0 flex-1 rounded-md border border-border bg-surface-2 px-2 text-sm focus:border-primary focus:bg-surface focus:outline-none"
               />
               <button

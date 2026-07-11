@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { appConfig } from "@/lib/config";
+import { graphemeCount } from "@/lib/outcome-colors";
 
 const localDateTimeSchema = z
   .string()
@@ -24,7 +25,13 @@ const outcomesSchema = z
           /^(blue|orange|purple|teal|amber|pink|lime|magenta|slate|brown|green|red|#[0-9a-f]{6})$/i,
           "Pick a swatch or a valid hex color.",
         ),
-      emoji: z.string().trim().max(8, "One emoji only.").optional(),
+      // flag/ZWJ emoji are one grapheme but many code units — cap graphemes
+      emoji: z
+        .string()
+        .trim()
+        .max(64)
+        .refine((value) => graphemeCount(value) <= 2, "One or two emoji only.")
+        .optional(),
     }),
   )
   .min(2, "A market needs at least 2 outcomes.")

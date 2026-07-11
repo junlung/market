@@ -1,7 +1,7 @@
 import { MarketStatus } from "@prisma/client";
 import { appConfig } from "@/lib/config";
 import { getOdds } from "@/lib/parimutuel";
-import { isValidOutcomeColor } from "@/lib/outcome-colors";
+import { graphemeCount, isValidOutcomeColor } from "@/lib/outcome-colors";
 
 export const MIN_OUTCOMES = 2;
 export const MAX_OUTCOMES = 6;
@@ -55,8 +55,11 @@ export function validateOutcomeDrafts(outcomes: OutcomeDraft[]) {
     if (!isValidOutcomeColor(outcome.color)) {
       throw new Error(`Unknown outcome color: ${outcome.color}`);
     }
-    if (outcome.emoji && outcome.emoji.trim().length > 8) {
-      throw new Error("Outcome emoji is limited to a single symbol.");
+    if (outcome.emoji) {
+      const emoji = outcome.emoji.trim();
+      if (emoji.length > 64 || graphemeCount(emoji) > 2) {
+        throw new Error("Outcome emoji is limited to one or two symbols.");
+      }
     }
   }
 }

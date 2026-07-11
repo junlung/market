@@ -99,6 +99,18 @@ export function defaultOutcomeColor(index: number, outcomeCount: number): Outcom
   return MULTI_OUTCOME_DEAL_ORDER[index % MULTI_OUTCOME_DEAL_ORDER.length];
 }
 
+/**
+ * Number of user-perceived characters. Flag and ZWJ emoji are single
+ * graphemes made of many code units (England's flag is 16) — never measure
+ * emoji fields with .length or maxLength.
+ */
+export function graphemeCount(value: string) {
+  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
+    return [...new Intl.Segmenter().segment(value)].length;
+  }
+  return [...value].length;
+}
+
 /** Display form of an outcome label — emoji-prefixed when one is set. */
 export function outcomeDisplayLabel(outcome: { label: string; emoji?: string | null }) {
   const emoji = outcome.emoji?.trim();
