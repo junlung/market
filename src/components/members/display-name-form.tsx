@@ -1,44 +1,45 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { updateDisplayNameAction } from "@/app/actions/members";
-import type { ActionResult } from "@/lib/server/market-service";
 import { Button } from "@/components/ui/button";
 import { FieldError, Input, Label } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
-
-const initialState: ActionResult = {};
 
 export function DisplayNameForm({ currentName }: { currentName: string }) {
   const toast = useToast();
   const router = useRouter();
   const { update } = useSession();
   const [name, setName] = useState(currentName);
-  const [state, action, pending] = useActionState(updateDisplayNameAction, initialState);
-  const lastHandled = useRef<ActionResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
 
-  useEffect(() => {
-    if (state === lastHandled.current) {
-      return;
-    }
-    lastHandled.current = state;
-
-    if (state.success) {
-      toast.success(state.success);
-      // refresh the JWT so the nav/avatar pick up the new name without re-login
-      void update({ name: name.trim() }).then(() => router.refresh());
-    } else if (state.error) {
-      toast.error(state.error);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state]);
+  // the action is invoked imperatively (not via useActionState): in
+  // production builds, an action that revalidates the current page resets
+  // useActionState to its initial value before the success ever renders —
+  // a closure over the awaited result is immune to that
+  function submit(formData: FormData) {
+    startTransition(async () => {
+      setError(null);
+      const result = await updateDisplayNameAction({}, formData);
+      if (result.success) {
+        toast.success(result.success);
+        // refresh the JWT so the nav picks up the new name without re-login
+        await update({ name: name.trim() });
+        router.refresh();
+      } else if (result.error) {
+        setError(result.error);
+        toast.error(result.error);
+      }
+    });
+  }
 
   const dirty = name.trim() !== currentName && name.trim().length >= 2;
 
   return (
-    <form action={action} className="space-y-2 text-left">
+    <form action={submit} className="space-y-2 text-left">
       <Label htmlFor="dn-name">Display name</Label>
       <div className="flex gap-2">
         <Input
@@ -58,7 +59,7 @@ export function DisplayNameForm({ currentName }: { currentName: string }) {
       <p className="text-[11px] text-faint">
         Shown on the leaderboard, activity feed, and everywhere you bet.
       </p>
-      <FieldError message={state.error} />
+      <FieldError message={error ?? undefined} />
     </form>
   );
 }

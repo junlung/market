@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import { placeBetAction, type PlaceBetActionResult } from "@/app/actions/markets";
 import { appConfig } from "@/lib/config";
@@ -39,13 +40,15 @@ export function BetSlip({
   initialOutcomeId,
 }: Props) {
   const toast = useToast();
+  const router = useRouter();
   const [selectedId, setSelectedId] = useState<string>(
     outcomes.some((outcome) => outcome.id === initialOutcomeId)
       ? initialOutcomeId!
       : outcomes[0].id,
   );
   const [amount, setAmount] = useState<string>("");
-  const [state, formAction, pending] = useActionState<PlaceBetActionResult, FormData>(placeBetAction, {});
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
 
   // pools update instantly from the action result; the RSC refresh follows
   const [pools, setPools] = useState<Map<string, number>>(
@@ -53,7 +56,6 @@ export function BetSlip({
   );
   const [stakeTotal, setStakeTotal] = useState(initialStakeTotal);
   const [spent, setSpent] = useState(0);
-  const lastHandled = useRef<PlaceBetActionResult | null>(null);
 
   const poolsProp = outcomes.map((outcome) => outcome.pool).join(",");
   useEffect(() => {
@@ -62,27 +64,31 @@ export function BetSlip({
   }, [poolsProp]);
   useEffect(() => setStakeTotal(initialStakeTotal), [initialStakeTotal]);
 
-  useEffect(() => {
-    if (state === lastHandled.current) {
-      return;
-    }
-    lastHandled.current = state;
-
-    if (state.success) {
-      toast.success(state.success);
-      if (state.pools) {
-        setPools(new Map(state.pools.map((entry) => [entry.outcomeId, entry.pool])));
+  // invoked imperatively rather than through useActionState: in production
+  // builds, an action that revalidates the current page resets action state
+  // before the success ever renders, eating the toast — the awaited result
+  // in this closure survives any re-render
+  function submit(formData: FormData) {
+    startTransition(async () => {
+      setError(null);
+      const result: PlaceBetActionResult = await placeBetAction({}, formData);
+      if (result.success) {
+        toast.success(result.success);
+        if (result.pools) {
+          setPools(new Map(result.pools.map((entry) => [entry.outcomeId, entry.pool])));
+        }
+        if (result.stakeTotal !== undefined) {
+          setSpent((current) => current + (result.stakeTotal! - stakeTotal));
+          setStakeTotal(result.stakeTotal);
+        }
+        setAmount("");
+        router.refresh();
+      } else if (result.error) {
+        setError(result.error);
+        toast.error(result.error);
       }
-      if (state.stakeTotal !== undefined) {
-        setSpent((current) => current + (state.stakeTotal! - stakeTotal));
-        setStakeTotal(state.stakeTotal);
-      }
-      setAmount("");
-    } else if (state.error) {
-      toast.error(state.error);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state]);
+    });
+  }
 
   const balance = initialBalance - spent;
   const capRemaining = Math.max(maxStakePerUser - stakeTotal, 0);
@@ -192,7 +198,7 @@ export function BetSlip({
         {outcomes.map(outcomeButton)}
       </div>
 
-      <form action={formAction} className="mt-3 space-y-3">
+      <form action={submit} className="mt-3 space-y-3">
         <input type="hidden" name="marketId" value={marketId} />
         <input type="hidden" name="outcomeId" value={selectedId} />
         <input type="hidden" name="outcomeLabel" value={outcomeDisplayLabel(selected)} />
@@ -280,7 +286,7 @@ export function BetSlip({
               : `Bet on ${selected.label}`}
         </button>
 
-        {state.error ? <p className="text-xs text-no">{state.error}</p> : null}
+        {error ? <p className="text-xs text-no">{error}</p> : null}
 
         <p className="text-[11px] leading-relaxed text-faint">
           Heads up: the payout above will drift as friends pile in — what you actually win depends on
