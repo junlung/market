@@ -26,6 +26,25 @@ export const OUTCOME_COLORS = [
 export type OutcomeColor = (typeof OUTCOME_COLORS)[number];
 
 /**
+ * What the swatch grid shows, in rainbow order. Deliberately fewer than the
+ * valid token set: one hue per family so no two dots read alike — lime,
+ * magenta, and brown remain valid (and renderable) but collide with their
+ * neighbors at dot size, so the picker hides them; the custom hex picker is
+ * the pressure valve for anything else.
+ */
+export const PICKER_COLORS: OutcomeColor[] = [
+  "red",
+  "orange",
+  "amber",
+  "green",
+  "teal",
+  "blue",
+  "purple",
+  "pink",
+  "slate",
+];
+
+/**
  * Auto-deal order for multi-outcome markets: non-semantic hues first —
  * green/red read as win/lose, so they stay the Yes/No preset pair and are
  * only dealt once everything else is taken.
@@ -37,10 +56,7 @@ export const MULTI_OUTCOME_DEAL_ORDER: OutcomeColor[] = [
   "teal",
   "amber",
   "pink",
-  "lime",
-  "magenta",
   "slate",
-  "brown",
 ];
 
 /** The binary preset: Yes = green, No = red — visually identical to the old app. */

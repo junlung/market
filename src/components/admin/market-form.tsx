@@ -7,12 +7,13 @@ import { appConfig } from "@/lib/config";
 import {
   BINARY_PRESET,
   MULTI_OUTCOME_DEAL_ORDER,
-  OUTCOME_COLORS,
+  PICKER_COLORS,
   hexContrast,
   isHexColor,
   outcomeColorVar,
   type OutcomeColor,
 } from "@/lib/outcome-colors";
+import { EmojiPicker } from "@/components/admin/emoji-picker";
 import type { MarketFormState } from "@/app/actions/markets";
 import { Button } from "@/components/ui/button";
 import { FieldError, Input, Label, Textarea } from "@/components/ui/input";
@@ -77,7 +78,7 @@ function nextUnusedColor(rows: OutcomeRow[]): OutcomeColor {
   const used = new Set(rows.map((row) => row.color));
   return (
     MULTI_OUTCOME_DEAL_ORDER.find((color) => !used.has(color)) ??
-    OUTCOME_COLORS.find((color) => !used.has(color)) ??
+    PICKER_COLORS.find((color) => !used.has(color)) ??
     MULTI_OUTCOME_DEAL_ORDER[rows.length % MULTI_OUTCOME_DEAL_ORDER.length]
   );
 }
@@ -196,15 +197,11 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
             return (
               <div key={index} className="rounded-lg border border-border p-2.5">
                 <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    name="outcomeEmoji"
+                  <input type="hidden" name="outcomeEmoji" value={outcome.emoji} />
+                  <EmojiPicker
                     value={outcome.emoji}
-                    onChange={(event) => updateOutcome(index, { emoji: event.target.value })}
-                    placeholder="😀"
-                    aria-label={`Outcome ${index + 1} emoji (optional)`}
-                    maxLength={8}
-                    className="h-10 w-12 shrink-0 rounded-lg border border-border bg-surface-2 text-center placeholder:opacity-40 focus:border-primary focus:bg-surface focus:outline-none"
+                    onChange={(emoji) => updateOutcome(index, { emoji })}
+                    label={`Outcome ${index + 1} emoji (optional)`}
                   />
                   <Input
                     name="outcomeLabel"
@@ -230,11 +227,11 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
                 </div>
                 <input type="hidden" name="outcomeColor" value={outcome.color} />
                 <div
-                  className="mt-2 flex flex-wrap items-center gap-1.5"
+                  className="mt-2 flex flex-wrap items-center gap-2"
                   role="radiogroup"
                   aria-label={`Outcome ${index + 1} color`}
                 >
-                  {OUTCOME_COLORS.map((color) => (
+                  {PICKER_COLORS.map((color) => (
                     <button
                       key={color}
                       type="button"
@@ -244,7 +241,7 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
                       title={color}
                       onClick={() => updateOutcome(index, { color })}
                       className={clsx(
-                        "size-6 rounded-full transition-transform",
+                        "size-7 rounded-full transition-transform",
                         outcome.color === color
                           ? "scale-110 ring-2 ring-foreground ring-offset-1 ring-offset-surface"
                           : "hover:scale-110",
@@ -256,7 +253,7 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
                   <label
                     title="Custom color"
                     className={clsx(
-                      "relative size-6 cursor-pointer overflow-hidden rounded-full transition-transform",
+                      "relative size-7 cursor-pointer overflow-hidden rounded-full transition-transform",
                       customActive
                         ? "scale-110 ring-2 ring-foreground ring-offset-1 ring-offset-surface"
                         : "hover:scale-110",
