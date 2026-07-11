@@ -124,8 +124,10 @@ export function getMarketOdds(
   }));
 
   const leader = views.reduce((best, view) => (view.probability > best.probability ? view : best), views[0]);
+  // an empty market (all pools 0) is also a tie — "leader" is arbitrary there
+  const leaderTied = views.filter((view) => view.pool === leader.pool).length > 1;
 
-  return { outcomes: views, leader, pot: odds.total };
+  return { outcomes: views, leader, leaderTied, pot: odds.total };
 }
 
 export function getMarketStatusLabel(status: MarketStatus) {

@@ -91,13 +91,17 @@ export default async function PortfolioPage() {
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
                   {stake.status === "CLOSED" ? <StatusBadge label="closed" /> : null}
-                  <ProbabilityChip
-                    probability={stake.leader.probability}
-                    color={stake.leader.color}
-                    label={outcomeDisplayLabel(stake.leader)}
-                    size="md"
-                    showLabel
-                  />
+                  {stake.leaderTied ? (
+                    <ProbabilityChip probability={stake.leader.probability} neutral label="even" size="md" showLabel />
+                  ) : (
+                    <ProbabilityChip
+                      probability={stake.leader.probability}
+                      color={stake.leader.color}
+                      label={outcomeDisplayLabel(stake.leader)}
+                      size="md"
+                      showLabel
+                    />
+                  )}
                 </div>
               </Link>
             ))}

@@ -10,6 +10,7 @@ import { outcomeColorVar } from "@/lib/outcome-colors";
 export function ProbabilityChip({
   probability,
   color,
+  neutral = false,
   label,
   size = "md",
   showLabel = false,
@@ -18,6 +19,8 @@ export function ProbabilityChip({
   probability: number;
   /** Outcome color token — when set, overrides the green/red lean rule. */
   color?: string;
+  /** Neutral ink — for tied markets where no outcome leads. */
+  neutral?: boolean;
   /** Label under the number; defaults to "chance". */
   label?: string;
   size?: "sm" | "md" | "lg" | "xl";
@@ -39,9 +42,9 @@ export function ProbabilityChip({
         className={clsx(
           "font-bold tabular-nums",
           sizeClass,
-          color === undefined && (leansYes ? "text-yes" : "text-no"),
+          neutral ? "text-muted" : color === undefined && (leansYes ? "text-yes" : "text-no"),
         )}
-        style={color !== undefined ? { color: outcomeColorVar(color) } : undefined}
+        style={!neutral && color !== undefined ? { color: outcomeColorVar(color) } : undefined}
       >
         {formatChance(probability)}
       </span>

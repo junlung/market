@@ -77,7 +77,11 @@ export default async function AdminMarketDetailPage({ params }: Props) {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Leading"
-          value={`${formatChance(market.leader.probability)} ${outcomeDisplayLabel(market.leader)}`}
+          value={
+            market.leaderTied
+              ? `${formatChance(market.leader.probability)} even`
+              : `${formatChance(market.leader.probability)} ${outcomeDisplayLabel(market.leader)}`
+          }
         />
         <StatCard
           label="Pot"

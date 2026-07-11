@@ -151,6 +151,8 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
           <div className="flex items-end gap-3">
             {classic ? (
               <ProbabilityChip probability={headline.probability} size="xl" showLabel />
+            ) : market.leaderTied ? (
+              <ProbabilityChip probability={headline.probability} neutral label="even" size="xl" showLabel />
             ) : (
               <ProbabilityChip
                 probability={headline.probability}
@@ -160,7 +162,7 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
                 showLabel
               />
             )}
-            {market.betCount > 0 && delta !== 0 ? (
+            {market.betCount > 0 && delta !== 0 && (classic || !market.leaderTied) ? (
               <span
                 className={
                   delta > 0 ? "pb-4 text-sm font-semibold text-yes" : "pb-4 text-sm font-semibold text-no"

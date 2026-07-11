@@ -24,6 +24,7 @@ export type MarketCardData = {
   closeTime: Date;
   outcomes: MarketCardOutcome[];
   leader: MarketCardOutcome;
+  leaderTied: boolean;
   pot: number;
   participants: number;
   sparkPoints: number[];
@@ -62,6 +63,8 @@ export function MarketCard({ market }: { market: MarketCardData }) {
         </Link>
         {classic ? (
           <ProbabilityChip probability={market.outcomes[0].probability} size="lg" showLabel />
+        ) : market.leaderTied ? (
+          <ProbabilityChip probability={market.leader.probability} neutral label="even" size="lg" showLabel />
         ) : (
           <ProbabilityChip
             probability={market.leader.probability}
