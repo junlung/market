@@ -150,3 +150,47 @@ export const rejectUserSchema = z.object({
   userId: z.string().cuid(),
   reason: z.string().trim().max(280).optional(),
 });
+
+// --- Leagues (2b) ---
+
+export const leagueFormSchema = z.object({
+  name: z.string().trim().min(3, "League names need at least 3 characters.").max(60),
+  description: z.string().trim().max(280, "Description maxes out at 280 characters.").optional(),
+  startingStack: z.coerce
+    .number()
+    .int("Whole points only.")
+    .min(1, "The starting stack must be at least 1 point.")
+    .max(1_000_000),
+  weeklyAllowance: z.coerce
+    .number()
+    .int("Whole points only.")
+    .min(0, "Use 0 to turn the allowance off.")
+    .max(100_000),
+  defaultRakeBps: z.coerce.number().int().min(0).max(2000, "Rake maxes out at 2000 bps (20%)."),
+  defaultMaxStakePerUser: z.coerce
+    .number()
+    .int("Whole points only.")
+    .min(1, "The stake cap must be at least 1 point.")
+    .max(100_000),
+});
+
+export const joinLeagueSchema = z.object({
+  code: z.string().trim().min(4, "Enter the invite code.").max(16),
+});
+
+export const createSeasonSchema = z
+  .object({
+    name: z.string().trim().max(60).optional(),
+    startsAt: localDateTimeSchema,
+    endsAt: localDateTimeSchema,
+  })
+  .refine(
+    (value) => new Date(value.endsAt).getTime() > new Date(value.startsAt).getTime(),
+    { message: "The season must end after it starts.", path: ["endsAt"] },
+  );
+
+export const setLeagueRoleSchema = z.object({
+  leagueId: z.string().cuid(),
+  userId: z.string().cuid(),
+  role: z.enum(["MOD", "MEMBER"]),
+});

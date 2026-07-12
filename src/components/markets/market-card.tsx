@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import { Trophy, Users } from "lucide-react";
 import { formatChance, formatCompactPoints, formatPoints } from "@/lib/format";
 import { isYesNoMarket, outcomeColorBg, outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
@@ -33,7 +34,14 @@ export type MarketCardData = {
 
 const TOP_OUTCOMES_SHOWN = 3;
 
-export function MarketCard({ market }: { market: MarketCardData }) {
+export function MarketCard({
+  market,
+  hrefBase = "/markets",
+}: {
+  market: MarketCardData;
+  /** League pages pass "/l/[slug]/markets" so cards link inside the league. */
+  hrefBase?: string;
+}) {
   const classic = isYesNoMarket(market.outcomes);
 
   const stakeLabel = market.viewerStakes
@@ -55,7 +63,7 @@ export function MarketCard({ market }: { market: MarketCardData }) {
       </div>
 
       <div className="mt-3 flex items-start justify-between gap-3">
-        <Link href={`/markets/${market.id}`} className="min-w-0 flex-1">
+        <Link href={`${hrefBase}/${market.id}` as Route} className="min-w-0 flex-1">
           <span className="absolute inset-0" aria-hidden />
           <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug group-hover:text-primary">
             {market.title}
@@ -83,7 +91,7 @@ export function MarketCard({ market }: { market: MarketCardData }) {
           {topOutcomes.map((outcome) => (
             <Link
               key={outcome.id}
-              href={`/markets/${market.id}?outcome=${outcome.id}`}
+              href={`${hrefBase}/${market.id}?outcome=${outcome.id}` as Route}
               className="relative z-10 flex items-center gap-2 text-xs"
             >
               <OutcomeDot color={outcome.color} />
@@ -128,7 +136,7 @@ export function MarketCard({ market }: { market: MarketCardData }) {
             {market.outcomes.map((outcome) => (
               <Link
                 key={outcome.id}
-                href={`/markets/${market.id}?outcome=${outcome.id}`}
+                href={`${hrefBase}/${market.id}?outcome=${outcome.id}` as Route}
                 className="rounded-md px-2.5 py-1 text-xs font-bold transition-colors hover:text-white"
                 style={{
                   background: outcomeColorBg(outcome.color),

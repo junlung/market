@@ -77,7 +77,13 @@ async function seedUsers(defaultPassword: string) {
     // one backdated allowance per member so the ledger type shows up in demos
     if (user.role === UserRole.MEMBER) {
       await prisma.ledgerEntry.upsert({
-        where: { userId_allowanceWeek: { userId: user.id, allowanceWeek: lastWeekKey } },
+        where: {
+          userId_leagueId_allowanceWeek: {
+            userId: user.id,
+            leagueId: globalLeague.id,
+            allowanceWeek: lastWeekKey,
+          },
+        },
         update: {},
         create: {
           userId: user.id,

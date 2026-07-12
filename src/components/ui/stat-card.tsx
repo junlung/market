@@ -3,7 +3,7 @@ import clsx from "clsx";
 type Props = {
   label: string;
   value: React.ReactNode;
-  hint?: string;
+  hint?: React.ReactNode;
   tone?: "default" | "yes" | "no";
 };
 

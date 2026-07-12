@@ -25,8 +25,9 @@ import {
   type SettlementResult,
 } from "@/lib/parimutuel";
 import { prisma } from "@/lib/prisma";
-import { ensureGlobalLeague } from "@/lib/server/league-service";
+import { ensureGlobalLeague, getActiveSeason, requireLeagueRole } from "@/lib/server/league-service";
 import { withSerializableRetry } from "@/lib/server/tx";
+import { LeagueRole } from "@prisma/client";
 
 export type ActionResult = {
   error?: string;
@@ -95,10 +96,14 @@ function legacyOutcomeEnum(outcomes: OutcomeRow[], winningOutcomeId: string | nu
 // ---------------------------------------------------------------------------
 // Balances
 // ---------------------------------------------------------------------------
+// The unqualified reads below are the Global League views (dashboard, account,
+// portfolio, history, admin center). Custom-league balances/feeds go through
+// league-service/getLeagueBalance and the league routes — points never cross.
 
 export async function getUserBalance(userId: string) {
+  const league = await ensureGlobalLeague();
   const result = await prisma.ledgerEntry.aggregate({
-    where: { userId },
+    where: { userId, leagueId: league.id },
     _sum: { amount: true },
   });
 
@@ -106,8 +111,9 @@ export async function getUserBalance(userId: string) {
 }
 
 export async function getBalanceBreakdown(userId: string) {
+  const league = await ensureGlobalLeague();
   const entries = await prisma.ledgerEntry.findMany({
-    where: { userId },
+    where: { userId, leagueId: league.id },
     select: { amount: true, type: true },
   });
 
@@ -120,8 +126,9 @@ export async function getBalanceBreakdown(userId: string) {
 }
 
 export async function getLedgerEntries(userId: string) {
+  const league = await ensureGlobalLeague();
   return prisma.ledgerEntry.findMany({
-    where: { userId },
+    where: { userId, leagueId: league.id },
     include: {
       market: { select: { id: true, title: true } },
     },
@@ -133,6 +140,34 @@ export async function getLedgerEntries(userId: string) {
 // Market lifecycle
 // ---------------------------------------------------------------------------
 
+/**
+ * Where a new market lands. No leagueId → the Global League (no season pin,
+ * decision #3). A custom league requires a running season — its markets are
+ * pinned to it, must close inside it, and take the league's economy settings
+ * verbatim (kickoff decision: inherit, no per-market overrides).
+ */
+async function resolveMarketHome(leagueId?: string, closeTime?: Date) {
+  if (!leagueId) {
+    const league = await ensureGlobalLeague();
+    return { league, season: null };
+  }
+
+  const league = await prisma.league.findUniqueOrThrow({ where: { id: leagueId } });
+  if (league.isGlobal) {
+    return { league, season: null };
+  }
+
+  const season = await getActiveSeason(league.id);
+  if (!season) {
+    throw new Error("This league has no season running — start one before opening markets.");
+  }
+  if (closeTime && closeTime.getTime() > season.endsAt.getTime()) {
+    throw new Error(`Markets must close before ${season.name} ends.`);
+  }
+
+  return { league, season };
+}
+
 export async function createMarket(input: {
   actorId: string;
   fields: MarketFields;
@@ -140,22 +175,25 @@ export async function createMarket(input: {
   maxStakePerUser?: number;
   rakeBps?: number;
   openNow?: boolean;
+  leagueId?: string;
 }) {
   validateMarketDraft(input.fields);
   validateOutcomeDrafts(input.outcomes);
 
-  const maxStakePerUser = input.maxStakePerUser ?? appConfig.defaultMaxStakePerUser;
-  const rakeBps = input.rakeBps ?? appConfig.rakeBps;
+  const { league, season } = await resolveMarketHome(input.leagueId, input.fields.closeTime);
+
+  const maxStakePerUser = season
+    ? league.defaultMaxStakePerUser
+    : (input.maxStakePerUser ?? appConfig.defaultMaxStakePerUser);
+  const rakeBps = season ? league.defaultRakeBps : (input.rakeBps ?? appConfig.rakeBps);
   assertSafeInt(maxStakePerUser, "Stake cap");
   assertSafeInt(rakeBps, "Rake");
-
-  // all markets live in the Global League until custom leagues land (2b)
-  const league = await ensureGlobalLeague();
 
   const market = await prisma.market.create({
     data: {
       ...input.fields,
       leagueId: league.id,
+      seasonId: season?.id ?? null,
       status: input.openNow ? MarketStatus.OPEN : MarketStatus.DRAFT,
       maxStakePerUser,
       rakeBps,
@@ -179,19 +217,21 @@ export async function proposeMarket(input: {
   proposerId: string;
   fields: MarketFields;
   outcomes: OutcomeDraft[];
+  leagueId?: string;
 }) {
   validateMarketDraft(input.fields);
   validateOutcomeDrafts(input.outcomes);
 
-  const league = await ensureGlobalLeague();
+  const { league, season } = await resolveMarketHome(input.leagueId, input.fields.closeTime);
 
   const market = await prisma.market.create({
     data: {
       ...input.fields,
       leagueId: league.id,
+      seasonId: season?.id ?? null,
       status: MarketStatus.PROPOSED,
-      maxStakePerUser: appConfig.defaultMaxStakePerUser,
-      rakeBps: appConfig.rakeBps,
+      maxStakePerUser: season ? league.defaultMaxStakePerUser : appConfig.defaultMaxStakePerUser,
+      rakeBps: season ? league.defaultRakeBps : appConfig.rakeBps,
       createdById: input.proposerId,
       outcomes: outcomeCreateInput(input.outcomes),
     },
@@ -200,6 +240,21 @@ export async function proposeMarket(input: {
 
   await logProposalAction(`Proposed market: ${market.title}`, input.proposerId, market.id);
 
+  return market;
+}
+
+/**
+ * Authorization gate for market operations (approve/open/close/resolve/
+ * cancel/edit): the market's league OWNER/MODs, or an app admin anywhere.
+ * In the Global League every membership is plain MEMBER, so this reduces to
+ * exactly the old admin-only rule there.
+ */
+export async function requireMarketOperator(marketId: string, userId: string) {
+  const market = await prisma.market.findUniqueOrThrow({
+    where: { id: marketId },
+    select: { id: true, leagueId: true, league: { select: { slug: true, isGlobal: true } } },
+  });
+  await requireLeagueRole(market.leagueId, userId, [LeagueRole.OWNER, LeagueRole.MOD]);
   return market;
 }
 
@@ -443,6 +498,7 @@ async function writeSettlement(input: {
         data: result.payouts.map((payout) => ({
           userId: payout.userId,
           leagueId: market.leagueId,
+          seasonId: market.seasonId,
           marketId: input.marketId,
           type: payout.kind === "REFUND" ? LedgerEntryType.MARKET_REFUND : LedgerEntryType.MARKET_PAYOUT,
           amount: payout.amount,
@@ -662,11 +718,13 @@ function replayProbabilities(outcomes: OutcomeRow[], bets: ReplayBet[]) {
 
 export async function getDashboardMarkets(
   userId: string,
-  filters: { category?: string; query?: string } = {},
+  filters: { category?: string; query?: string; leagueId?: string } = {},
 ) {
+  const leagueId = filters.leagueId ?? (await ensureGlobalLeague()).id;
   const markets = await prisma.market.findMany({
     where: {
       status: MarketStatus.OPEN,
+      leagueId,
       ...(filters.category ? { category: filters.category } : {}),
       ...(filters.query
         ? {
@@ -730,10 +788,11 @@ export async function getDashboardMarkets(
   });
 }
 
-export async function getOpenCategories() {
+export async function getOpenCategories(leagueId?: string) {
+  const scopedLeagueId = leagueId ?? (await ensureGlobalLeague()).id;
   const rows = await prisma.market.groupBy({
     by: ["category"],
-    where: { status: MarketStatus.OPEN },
+    where: { status: MarketStatus.OPEN, leagueId: scopedLeagueId },
     orderBy: { category: "asc" },
   });
 
@@ -744,6 +803,9 @@ export async function getMarketDetail(marketId: string, userId: string) {
   const market = await prisma.market.findUnique({
     where: { id: marketId },
     include: {
+      league: {
+        select: { id: true, slug: true, name: true, isGlobal: true, balancePolicy: true },
+      },
       outcomes: { orderBy: { sortOrder: "asc" } },
       poolStakes: {
         include: { user: { select: { name: true, username: true } } },
@@ -865,6 +927,8 @@ export async function getMarketDetail(marketId: string, userId: string) {
 
   return {
     id: market.id,
+    league: market.league,
+    seasonId: market.seasonId,
     title: market.title,
     description: market.description,
     category: market.category,
@@ -902,12 +966,16 @@ export async function getMarketDetail(marketId: string, userId: string) {
   };
 }
 
-export async function getActiveStakes(userId: string) {
+export async function getActiveStakes(userId: string, leagueId?: string) {
+  const scopedLeagueId = leagueId ?? (await ensureGlobalLeague()).id;
   const stakes = await prisma.poolStake.findMany({
     where: {
       userId,
       amount: { gt: 0 },
-      market: { status: { in: [MarketStatus.OPEN, MarketStatus.CLOSED] } },
+      market: {
+        status: { in: [MarketStatus.OPEN, MarketStatus.CLOSED] },
+        leagueId: scopedLeagueId,
+      },
     },
     include: { market: { include: { outcomes: { orderBy: { sortOrder: "asc" } } } } },
     orderBy: { updatedAt: "desc" },
@@ -960,12 +1028,16 @@ export async function getActiveStakes(userId: string) {
   });
 }
 
-export async function getResolvedStakes(userId: string) {
+export async function getResolvedStakes(userId: string, leagueId?: string) {
+  const scopedLeagueId = leagueId ?? (await ensureGlobalLeague()).id;
   const stakes = await prisma.poolStake.findMany({
     where: {
       userId,
       amount: { gt: 0 },
-      market: { status: { in: [MarketStatus.RESOLVED, MarketStatus.CANCELED] } },
+      market: {
+        status: { in: [MarketStatus.RESOLVED, MarketStatus.CANCELED] },
+        leagueId: scopedLeagueId,
+      },
     },
     include: {
       market: {
@@ -1018,8 +1090,9 @@ export async function getResolvedStakes(userId: string) {
 }
 
 export async function getBetHistory(userId: string) {
+  const league = await ensureGlobalLeague();
   return prisma.bet.findMany({
-    where: { userId },
+    where: { userId, market: { leagueId: league.id } },
     include: {
       market: { select: { id: true, title: true, status: true } },
       outcome: { select: { label: true, color: true, emoji: true } },
@@ -1028,8 +1101,10 @@ export async function getBetHistory(userId: string) {
   });
 }
 
-export async function getActivityFeed(limit = 30) {
+export async function getActivityFeed(limit = 30, leagueId?: string) {
+  const scopedLeagueId = leagueId ?? (await ensureGlobalLeague()).id;
   const bets = await prisma.bet.findMany({
+    where: { market: { leagueId: scopedLeagueId } },
     take: limit,
     orderBy: { createdAt: "desc" },
     include: {
@@ -1054,6 +1129,8 @@ export async function getActivityFeed(limit = 30) {
 }
 
 export async function getLeaderboard() {
+  const league = await ensureGlobalLeague();
+
   // every approved player belongs on the board, admins included — only
   // pending/rejected applicants (who can't hold points) are excluded
   const users = await prisma.user.findMany({
@@ -1063,11 +1140,14 @@ export async function getLeaderboard() {
 
   const ledgerSums = await prisma.ledgerEntry.groupBy({
     by: ["userId", "type"],
+    where: { leagueId: league.id },
     _sum: { amount: true },
   });
 
   const openStakes = await prisma.poolStake.findMany({
-    where: { market: { status: { in: [MarketStatus.OPEN, MarketStatus.CLOSED] } } },
+    where: {
+      market: { status: { in: [MarketStatus.OPEN, MarketStatus.CLOSED] }, leagueId: league.id },
+    },
     select: { userId: true, amount: true },
   });
 
@@ -1115,7 +1195,11 @@ export async function getLeaderboard() {
 // ---------------------------------------------------------------------------
 
 export async function getAdminMarkets() {
+  // the admin center manages the Global League; custom-league markets are
+  // managed by their owners/mods on the league pages
+  const league = await ensureGlobalLeague();
   const markets = await prisma.market.findMany({
+    where: { leagueId: league.id },
     include: {
       outcomes: { orderBy: { sortOrder: "asc" } },
       poolStakes: { where: { amount: { gt: 0 } }, select: { userId: true } },
@@ -1132,9 +1216,35 @@ export async function getAdminMarkets() {
   }));
 }
 
-export async function listProposals() {
+/** Markets a league operator still owes an action: review, open, or resolve. */
+export async function listLeagueMarketsAwaitingAction(leagueId: string) {
   return prisma.market.findMany({
-    where: { status: MarketStatus.PROPOSED },
+    where: {
+      leagueId,
+      status: { in: [MarketStatus.PROPOSED, MarketStatus.DRAFT, MarketStatus.CLOSED] },
+    },
+    include: { outcomes: { orderBy: { sortOrder: "asc" } } },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/** A league's settled history, newest first. */
+export async function listLeagueSettledMarkets(leagueId: string, limit = 10) {
+  return prisma.market.findMany({
+    where: { leagueId, status: { in: [MarketStatus.RESOLVED, MarketStatus.CANCELED] } },
+    include: {
+      outcomes: { orderBy: { sortOrder: "asc" } },
+      winningOutcome: true,
+    },
+    orderBy: [{ resolvedAt: "desc" }, { canceledAt: "desc" }],
+    take: limit,
+  });
+}
+
+export async function listProposals(leagueId?: string) {
+  const scopedLeagueId = leagueId ?? (await ensureGlobalLeague()).id;
+  return prisma.market.findMany({
+    where: { status: MarketStatus.PROPOSED, leagueId: scopedLeagueId },
     include: { outcomes: { orderBy: { sortOrder: "asc" } } },
     orderBy: { createdAt: "asc" },
   });

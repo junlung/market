@@ -1,13 +1,16 @@
 "use server";
 
+import { LeagueRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireAdminSession, requireSession } from "@/lib/session";
 import { placeBet, recordBetFailure } from "@/lib/server/bet-service";
+import { requireLeagueRole } from "@/lib/server/league-service";
 import {
   cancelMarket,
   closeMarket,
   createMarket,
   openMarket,
+  requireMarketOperator,
   resolveMarket,
   updateMarket,
   type ActionResult,
@@ -34,6 +37,7 @@ function invalidateAppData() {
   revalidatePath("/activity");
   revalidatePath("/admin");
   revalidatePath("/markets", "layout");
+  revalidatePath("/l", "layout");
 }
 
 /** Outcome editor rows arrive as parallel outcomeLabel/outcomeColor fields. */
@@ -63,7 +67,18 @@ function parseMarketForm(formData: FormData) {
 }
 
 export async function createMarketAction(_: MarketFormState, formData: FormData): Promise<MarketFormState> {
-  const session = await requireAdminSession();
+  // custom-league markets are opened by the league's owner/mods; without a
+  // leagueId this is the Global League and stays app-admin-only
+  const leagueId = String(formData.get("leagueId") ?? "") || undefined;
+  const session = leagueId ? await requireSession() : await requireAdminSession();
+  if (leagueId) {
+    try {
+      await requireLeagueRole(leagueId, session.user.id, [LeagueRole.OWNER, LeagueRole.MOD]);
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Not allowed." };
+    }
+  }
+
   const parsed = parseMarketForm(formData);
 
   if (!parsed.success) {
@@ -72,6 +87,7 @@ export async function createMarketAction(_: MarketFormState, formData: FormData)
 
   try {
     await createMarket({
+      leagueId,
       actorId: session.user.id,
       fields: {
         title: parsed.data.title,
@@ -94,7 +110,7 @@ export async function createMarketAction(_: MarketFormState, formData: FormData)
 }
 
 export async function updateMarketAction(_: MarketFormState, formData: FormData): Promise<MarketFormState> {
-  const session = await requireAdminSession();
+  const session = await requireSession();
   const marketId = String(formData.get("marketId") ?? "");
   const parsed = parseMarketForm(formData);
 
@@ -103,6 +119,7 @@ export async function updateMarketAction(_: MarketFormState, formData: FormData)
   }
 
   try {
+    await requireMarketOperator(marketId, session.user.id);
     await updateMarket(marketId, session.user.id, {
       title: parsed.data.title,
       description: parsed.data.description,
@@ -123,13 +140,15 @@ export async function updateMarketAction(_: MarketFormState, formData: FormData)
 }
 
 export async function marketStatusAction(formData: FormData) {
-  const session = await requireAdminSession();
+  const session = await requireSession();
   const marketId = String(formData.get("marketId") ?? "");
   const action = String(formData.get("action") ?? "");
 
   if (!marketId) {
     return;
   }
+
+  await requireMarketOperator(marketId, session.user.id);
 
   if (action === "open") {
     await openMarket(marketId, session.user.id);
@@ -144,7 +163,7 @@ export async function marketStatusAction(formData: FormData) {
 }
 
 export async function resolveMarketAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
-  const session = await requireAdminSession();
+  const session = await requireSession();
   const parsed = resolveMarketSchema.safeParse({
     marketId: formData.get("marketId"),
     winningOutcomeId: formData.get("winningOutcomeId"),
@@ -157,6 +176,7 @@ export async function resolveMarketAction(_: ActionResult, formData: FormData): 
   }
 
   try {
+    await requireMarketOperator(parsed.data.marketId, session.user.id);
     await resolveMarket(
       parsed.data.marketId,
       session.user.id,
@@ -173,7 +193,7 @@ export async function resolveMarketAction(_: ActionResult, formData: FormData): 
 }
 
 export async function cancelMarketAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
-  const session = await requireAdminSession();
+  const session = await requireSession();
   const parsed = cancelMarketSchema.safeParse({
     marketId: formData.get("marketId"),
     reason: formData.get("reason"),
@@ -184,6 +204,7 @@ export async function cancelMarketAction(_: ActionResult, formData: FormData): P
   }
 
   try {
+    await requireMarketOperator(parsed.data.marketId, session.user.id);
     await cancelMarket(parsed.data.marketId, session.user.id, parsed.data.reason);
     invalidateAppData();
     revalidatePath(`/admin/markets/${parsed.data.marketId}`);

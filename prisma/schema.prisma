@@ -41,6 +41,9 @@ enum BetSide {
 enum LedgerEntryType {
   INITIAL_GRANT
   WEEKLY_ALLOWANCE
+  // per-season starting stack in FRESH_PER_SEASON leagues; idempotent per
+  // (userId, seasonId) via a partial unique index (SQL-only, like isGlobal)
+  SEASON_STACK
   BET_PLACED
   MARKET_PAYOUT
   MARKET_REFUND
@@ -209,7 +212,20 @@ model League {
   owner         User?               @relation("LeagueOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   joinPolicy    LeagueJoinPolicy    @default(INVITE_CODE)
   balancePolicy LeagueBalancePolicy @default(FRESH_PER_SEASON)
-  createdAt     DateTime            @default(now())
+
+  // the single rotating join code (regenerate to revoke). Null for the
+  // global league — nobody joins it by code.
+  inviteCode String? @unique
+
+  // economy settings custom-league markets inherit (2b kickoff decision #2).
+  // Set at creation, locked once the first season starts. The global league
+  // keeps matching appConfig; its settings columns are display-only.
+  startingStack          Int @default(500)
+  weeklyAllowance        Int @default(100)
+  defaultRakeBps         Int @default(500)
+  defaultMaxStakePerUser Int @default(500)
+
+  createdAt DateTime @default(now())
 
   memberships   LeagueMembership[]
   seasons       Season[]
@@ -250,7 +266,9 @@ model Season {
   // [{ userId, name, username, score, marketsSettled, marketsWon, rank }]
   standings   Json?
 
-  league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  league        League        @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  markets       Market[]
+  ledgerEntries LedgerEntry[]
 
   @@unique([leagueId, index])
   @@unique([leagueId, startsAt])
@@ -271,6 +289,10 @@ model Market {
   // League); a market never moves leagues (decisions log, Phase 2)
   leagueId String
   league   League @relation(fields: [leagueId], references: [id], onDelete: Restrict)
+  // pinned season for FRESH_PER_SEASON leagues — its stakes/payouts belong
+  // to that season's stack. Null in PERSISTENT leagues (the Global League).
+  seasonId String?
+  season   Season? @relation(fields: [seasonId], references: [id], onDelete: Restrict)
 
   // Invariant: RESOLVED ⇒ winningOutcomeId != null. CANCELED derives from
   // status alone. Restrict: a winning outcome row can never be deleted from
@@ -319,6 +341,7 @@ model Market {
   @@index([category, status])
   @@index([createdById, status])
   @@index([leagueId, status])
+  @@index([seasonId, status])
 }
 
 // One named outcome of a market (2–6 per market, fixed at creation).
@@ -402,8 +425,10 @@ model LedgerEntry {
   id            String          @id @default(cuid())
   userId        String
   // the points economy this entry belongs to (backfilled to the Global
-  // League) — balances become league-scoped when custom leagues land in 2b
+  // League); seasonId additionally scopes FRESH_PER_SEASON stacks — a
+  // season's balance = SUM over (leagueId, seasonId)
   leagueId      String
+  seasonId      String?
   marketId      String?
   betId         String?
   type          LedgerEntryType
@@ -413,10 +438,13 @@ model LedgerEntry {
   createdAt     DateTime        @default(now())
   user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   league        League          @relation(fields: [leagueId], references: [id], onDelete: Restrict)
+  season        Season?         @relation(fields: [seasonId], references: [id], onDelete: Restrict)
   market        Market?         @relation(fields: [marketId], references: [id], onDelete: SetNull)
   bet           Bet?            @relation(fields: [betId], references: [id], onDelete: SetNull)
 
-  @@unique([userId, allowanceWeek])
+  // one allowance per user per league per week (SEASON_STACK idempotency is
+  // a partial unique on [userId, seasonId] — SQL-only, like League.isGlobal)
+  @@unique([userId, leagueId, allowanceWeek])
   @@index([userId, createdAt])
   @@index([marketId, createdAt])
   @@index([leagueId, userId])

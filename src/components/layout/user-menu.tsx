@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
-import { CircleUserRound, History, LogOut, PlusCircle, Shield, User, UserPlus } from "lucide-react";
+import { CircleUserRound, Crown, History, LogOut, PlusCircle, Shield, User, UserPlus } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 
 export function UserMenu({
@@ -59,6 +59,9 @@ export function UserMenu({
           </Link>
           <Link href="/markets/new" className={itemClass} onClick={() => setOpen(false)}>
             <PlusCircle className="size-4" /> Propose a market
+          </Link>
+          <Link href="/leagues" className={itemClass} onClick={() => setOpen(false)}>
+            <Crown className="size-4" /> Leagues
           </Link>
           <Link href="/invite" className={itemClass} onClick={() => setOpen(false)}>
             <UserPlus className="size-4" /> Invite friends

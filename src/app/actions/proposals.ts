@@ -1,12 +1,15 @@
 "use server";
 
+import { LeagueRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
-import { requireAdminSession, requireSession } from "@/lib/session";
+import { requireSession } from "@/lib/session";
 import { ensureWeeklyAllowance } from "@/lib/server/allowance-service";
+import { requireLeagueRole } from "@/lib/server/league-service";
 import {
   approveProposal,
   proposeMarket,
   rejectProposal,
+  requireMarketOperator,
   type ActionResult,
 } from "@/lib/server/market-service";
 import type { MarketFormState } from "@/app/actions/markets";
@@ -21,6 +24,7 @@ function revalidateProposalViews(marketId?: string) {
   revalidatePath("/dashboard");
   revalidatePath("/admin");
   revalidatePath("/admin/markets");
+  revalidatePath("/l", "layout");
   if (marketId) {
     revalidatePath(`/admin/markets/${marketId}`);
     revalidatePath(`/markets/${marketId}`);
@@ -30,6 +34,20 @@ function revalidateProposalViews(marketId?: string) {
 export async function proposeMarketAction(_: MarketFormState, formData: FormData): Promise<MarketFormState> {
   const session = await requireSession();
   await ensureWeeklyAllowance(session.user.id);
+
+  // proposing into a custom league is for its members (any role)
+  const leagueId = String(formData.get("leagueId") ?? "") || undefined;
+  if (leagueId) {
+    try {
+      await requireLeagueRole(leagueId, session.user.id, [
+        LeagueRole.OWNER,
+        LeagueRole.MOD,
+        LeagueRole.MEMBER,
+      ]);
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Not allowed." };
+    }
+  }
 
   const labels = formData.getAll("outcomeLabel").map(String);
   const colors = formData.getAll("outcomeColor").map(String);
@@ -55,6 +73,7 @@ export async function proposeMarketAction(_: MarketFormState, formData: FormData
 
   try {
     await proposeMarket({
+      leagueId,
       proposerId: session.user.id,
       fields: {
         title: parsed.data.title,
@@ -67,14 +86,18 @@ export async function proposeMarketAction(_: MarketFormState, formData: FormData
       outcomes: parsed.data.outcomes,
     });
     revalidateProposalViews();
-    return { success: "Proposal submitted — an admin will review it." };
+    return {
+      success: leagueId
+        ? "Proposal submitted — the league owner will review it."
+        : "Proposal submitted — an admin will review it.",
+    };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Failed to submit proposal." };
   }
 }
 
 export async function approveProposalAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
-  const session = await requireAdminSession();
+  const session = await requireSession();
   const parsed = reviewProposalSchema.safeParse({
     marketId: formData.get("marketId"),
     note: formData.get("note") || undefined,
@@ -86,6 +109,7 @@ export async function approveProposalAction(_: ActionResult, formData: FormData)
   }
 
   try {
+    await requireMarketOperator(parsed.data.marketId, session.user.id);
     await approveProposal(parsed.data.marketId, session.user.id, {
       note: parsed.data.note,
       openNow: parsed.data.openNow,
@@ -98,7 +122,7 @@ export async function approveProposalAction(_: ActionResult, formData: FormData)
 }
 
 export async function rejectProposalAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
-  const session = await requireAdminSession();
+  const session = await requireSession();
   const parsed = rejectProposalSchema.safeParse({
     marketId: formData.get("marketId"),
     reason: formData.get("reason"),
@@ -109,6 +133,7 @@ export async function rejectProposalAction(_: ActionResult, formData: FormData):
   }
 
   try {
+    await requireMarketOperator(parsed.data.marketId, session.user.id);
     await rejectProposal(parsed.data.marketId, session.user.id, parsed.data.reason);
     revalidateProposalViews(parsed.data.marketId);
     return { success: "Proposal rejected." };

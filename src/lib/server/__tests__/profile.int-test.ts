@@ -11,7 +11,7 @@ import { getIsoWeekKey } from "@/lib/allowance";
 import { prisma } from "@/lib/prisma";
 import { placeBet } from "@/lib/server/bet-service";
 import { grantItem, listUserItems } from "@/lib/server/item-service";
-import { ensureGlobalLeague } from "@/lib/server/league-service";
+import { ensureGlobalLeague, ensureLeagueMembership } from "@/lib/server/league-service";
 import { resolveMarket } from "@/lib/server/market-service";
 import { getProfileByUsername } from "@/lib/server/profile-service";
 
@@ -39,6 +39,9 @@ async function createUser(
       status,
     },
   });
+
+  // betting is members-only, even in the Global League
+  await ensureLeagueMembership(await globalLeagueId(), user.id);
 
   if (balance > 0) {
     await prisma.ledgerEntry.create({

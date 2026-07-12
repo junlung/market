@@ -1,0 +1,147 @@
+import { notFound } from "next/navigation";
+import { LeagueRole, SeasonStatus, UserRole } from "@prisma/client";
+import { CalendarClock } from "lucide-react";
+import { updateLeagueSettingsAction } from "@/app/actions/leagues";
+import { InviteCodeCard } from "@/components/leagues/invite-code-card";
+import { LeagueForm } from "@/components/leagues/league-form";
+import { MemberRoleToggle } from "@/components/leagues/member-role-row";
+import { SeasonForm } from "@/components/leagues/season-form";
+import { ProfileLink } from "@/components/members/profile-link";
+import { Avatar } from "@/components/ui/avatar";
+import { LocalTime } from "@/components/ui/local-time";
+import {
+  getActiveSeason,
+  getLeagueForViewer,
+  getUpcomingSeason,
+  listLeagueMembers,
+} from "@/lib/server/league-service";
+import { hasStartedSeason, listSeasons } from "@/lib/server/season-service";
+import { requireSession } from "@/lib/session";
+
+const ROLE_LABEL = { OWNER: "Owner", MOD: "Mod", MEMBER: "Member" } as const;
+
+export default async function LeagueSettingsPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const session = await requireSession();
+  const { slug } = await params;
+  const result = await getLeagueForViewer(slug, session.user.id);
+  if (!result || result.league.isGlobal) {
+    notFound();
+  }
+  const { league, membership } = result;
+
+  const isAppAdmin = session.user.role === UserRole.ADMIN;
+  const isOwner = membership?.role === LeagueRole.OWNER || isAppAdmin;
+  const canManage = isOwner || membership?.role === LeagueRole.MOD;
+  if (!canManage) {
+    notFound();
+  }
+
+  const [members, activeSeason, upcomingSeason, settingsLocked, seasons] = await Promise.all([
+    listLeagueMembers(league.id),
+    getActiveSeason(league.id),
+    getUpcomingSeason(league.id),
+    hasStartedSeason(league.id),
+    listSeasons(league.id),
+  ]);
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      <div className="space-y-4">
+        {league.inviteCode ? (
+          <InviteCodeCard leagueId={league.id} slug={slug} code={league.inviteCode} />
+        ) : null}
+
+        <div className="rounded-xl border border-border bg-surface p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-faint">Members</p>
+          <ul className="mt-2 divide-y divide-border">
+            {members.map((row) => (
+              <li key={row.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <ProfileLink
+                  username={row.user.username}
+                  className="flex min-w-0 items-center gap-2 font-medium hover:underline"
+                >
+                  <Avatar name={row.user.name} size="xs" />
+                  <span className="truncate">{row.user.name}</span>
+                </ProfileLink>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className="text-xs text-muted">{ROLE_LABEL[row.role]}</span>
+                  {isOwner && row.role !== LeagueRole.OWNER ? (
+                    <MemberRoleToggle
+                      leagueId={league.id}
+                      slug={slug}
+                      userId={row.user.id}
+                      currentRole={row.role === LeagueRole.MOD ? "MOD" : "MEMBER"}
+                    />
+                  ) : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="rounded-xl border border-border bg-surface p-4">
+          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-faint">
+            <CalendarClock className="size-3.5" aria-hidden /> Seasons
+          </p>
+          {!activeSeason && !upcomingSeason ? (
+            <div className="mt-3">
+              <SeasonForm leagueId={league.id} slug={slug} />
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-muted">
+              {activeSeason ? (
+                <>
+                  <span className="font-medium text-foreground">{activeSeason.name}</span> is live —
+                  ends <LocalTime date={activeSeason.endsAt} />. The next one can start after it
+                  finalizes (all markets settled).
+                </>
+              ) : (
+                <>
+                  <span className="font-medium text-foreground">{upcomingSeason!.name}</span> starts{" "}
+                  <LocalTime date={upcomingSeason!.startsAt} />.
+                </>
+              )}
+            </p>
+          )}
+          {seasons.length > 0 ? (
+            <ul className="mt-3 space-y-1 border-t border-border pt-3 text-xs text-muted">
+              {seasons.map((season) => (
+                <li key={season.id} className="flex justify-between gap-2 tabular-nums">
+                  <span>{season.name}</span>
+                  <span>
+                    <LocalTime date={season.startsAt} mode="date" /> –{" "}
+                    <LocalTime date={season.endsAt} mode="date" /> ·{" "}
+                    {season.status === SeasonStatus.FINALIZED
+                      ? "finalized"
+                      : season.status.toLowerCase()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold">League settings</h2>
+        {isOwner ? (
+          <LeagueForm
+            action={updateLeagueSettingsAction}
+            league={league}
+            settingsLocked={settingsLocked}
+            submitLabel="Save settings"
+          />
+        ) : (
+          <p className="rounded-xl border border-border bg-surface p-4 text-sm text-muted">
+            Only the owner can change league settings. Mods can rotate the invite code and run
+            markets and seasons.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}

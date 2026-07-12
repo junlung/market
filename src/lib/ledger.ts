@@ -29,6 +29,7 @@ export function categorizeLedgerAmount(type: LedgerEntryType, amount: number): B
 
   switch (type) {
     case LedgerEntryType.INITIAL_GRANT:
+    case LedgerEntryType.SEASON_STACK:
       return { ...empty, grants: amount };
     case LedgerEntryType.WEEKLY_ALLOWANCE:
       return { ...empty, allowances: amount };

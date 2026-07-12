@@ -124,3 +124,43 @@ test("profiles are reachable from the leaderboard and editable from the account 
   await expect(page.getByText("@alex")).toBeVisible();
   await expect(page.getByText(bio)).toBeVisible();
 });
+
+test("leagues: create one, start a season, and a friend joins by invite code", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  const stamp = Date.now();
+  const name = `Smoke League ${stamp}`;
+
+  // alex creates a league from /leagues
+  await signIn(page, memberEmail);
+  await page.goto("/leagues");
+  await page.getByLabel("League name").fill(name);
+  await page.getByRole("button", { name: "Create league" }).click();
+  await page.waitForURL(/\/l\/smoke-league/);
+  await expect(page.getByRole("heading", { name })).toBeVisible();
+
+  // owner starts a season straight from the overview; the page revalidates
+  // into season mode — the stack card is the proof the stacks were dealt
+  await page.getByRole("button", { name: "One week" }).click();
+  await page.getByRole("button", { name: "Start season" }).click();
+  await expect(page.getByText(/Your stack — Season 1/i)).toBeVisible();
+  await expect(page.getByText("500 pts").first()).toBeVisible();
+
+  // the invite code lives on the settings tab
+  await page.getByRole("link", { name: "Settings" }).click();
+  const code = (await page.locator("code").first().textContent())?.trim() ?? "";
+  expect(code).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+
+  // blair joins with the code from a separate session
+  const context = await browser.newContext({ baseURL: baseURL! });
+  const friendPage = await context.newPage();
+  await signIn(friendPage, "blair@prollymarket.local");
+  await friendPage.goto("/leagues");
+  await friendPage.getByLabel("Invite code").fill(code);
+  await friendPage.getByRole("button", { name: "Join league" }).click();
+  await friendPage.waitForURL(/\/l\/smoke-league/);
+  await expect(friendPage.getByRole("heading", { name })).toBeVisible();
+  await context.close();
+});

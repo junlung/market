@@ -1,11 +1,12 @@
 # Social Features Plan
 
-**Status: Phase 1 implemented on `social-update`; Phase 2a implemented on `leagues`**
-(2026-07-12; both verified locally — unit, integration, and e2e suites green. Prod rollout =
-merge + deploy; migrations backfill usernames and league scoping automatically. 2a also needs
-`CRON_SECRET` set in Vercel env before deploy). Phase 2b is next. This is a living document —
-update the phase checklists and the decisions log as work lands. Decisions below were made with
-Jon on 2026-07-12; don't silently reverse them, add a dated amendment instead.
+**Status: Phase 1 implemented on `social-update`; Phases 2a and 2b implemented on `leagues`**
+(2026-07-12; all verified locally — unit, integration, and e2e suites green. Prod rollout =
+merge + deploy; migrations backfill usernames and league scoping automatically. 2a+ needs
+`CRON_SECRET` set in Vercel env before deploy). Phase 3 (cosmetics/gems) is next, gated on the
+first Global League season finalizing in prod. This is a living document — update the phase
+checklists and the decisions log as work lands. Decisions below were made with Jon on
+2026-07-12; don't silently reverse them, add a dated amendment instead.
 
 ## Vision
 
@@ -212,26 +213,59 @@ Amendments / small decisions made while building (2026-07-12):
 | 4 | Resolutions | **Instant payout in custom leagues too** — commissioners are trusted, fantasy-style. *Dated amendment to the 2026-07-12 "short dispute window" guardrail: deferred, not built in v1.* Resolutions still land in the league feed with actor + source; the window ships later only if it's actually needed. |
 | 5 | Seasons | **Owner-set start/end dates, manual roll.** The cron finalizes ended custom seasons (freeze standings, grant trophies) but never auto-opens the next; the owner starts the next season explicitly, which grants the fresh stacks (`FRESH_PER_SEASON`). One-shot leagues simply never start another. |
 
-### Phase 2b — work items
+### Phase 2b — work items (shipped 2026-07-12, branch `leagues`)
 
-- [ ] Schema: League settings columns + `inviteCode` (unique, rotatable); `Market.seasonId` +
-      `LedgerEntry.seasonId` (nullable, set for fresh-stack leagues); league-scoped balance
-      reads (`getUserBalance(userId, leagueId)` and friends)
-- [ ] League CRUD: create league (becomes OWNER), settings page, rotate invite code,
-      join-by-code, member list with roles (OWNER/MOD/MEMBER), leave league
-- [ ] Season lifecycle: owner creates season (date presets: month/week/weekend), fresh-stack
-      grants at season start (idempotent per [userId, seasonId]), "start next season" action;
-      cron finalizes ended custom seasons (no auto-roll)
-- [ ] Market lifecycle scoped to league: members propose, owner/mods approve/open/resolve/cancel
-      (replaces global-admin gating for league ops only); markets pinned to the active season
-- [ ] League-scoped allowance: idempotency key becomes [userId, leagueId, allowanceWeek]
-      (respecting the league's weeklyAllowance setting)
-- [ ] Routes: `/l/[slug]` (overview/feed), `/l/[slug]/markets[/marketId]`,
-      `/l/[slug]/leaderboard`, `/l/[slug]/settings`; middleware matcher + "My leagues" nav
-- [ ] Trophies: reuse the season-trophy items — provenance already carries league/season
-- [ ] Tests: integration (fresh-stack isolation from Global balances, join-code rotation,
-      per-league permissions, custom-season finalization), e2e (create league → invite → bet →
-      resolve → standings)
+- [x] Schema (`20260712130000_season_stack_enum` + `20260712130100_league_settings_seasons`):
+      League settings columns + `inviteCode` (unique, rotatable); `Market.seasonId` +
+      `LedgerEntry.seasonId`; `SEASON_STACK` ledger type with a partial unique
+      [userId, seasonId] (enum add and its first index use must be separate migrations —
+      Postgres won't reference a same-transaction enum value)
+- [x] League-scoped balances: `getLeagueBalance(userId, {leagueId, balancePolicy, seasonId})` —
+      PERSISTENT sums the league, FRESH_PER_SEASON sums only the season (no active season reads
+      as 0, never a stale stack). Every unqualified read (dashboard, account, portfolio,
+      history, leaderboard, profiles, admin) now explicitly scopes to the Global League;
+      `placeBet` checks the market's league scope and requires league membership — Global
+      points can't buy custom-league bets or vice versa
+- [x] League CRUD: create (slug from name, OWNER membership, generated code), join-by-code
+      (mid-season joiners get their stack immediately, once), rotate code (owner/mod; old code
+      dies), settings (owner; economy locks once the first season starts), MOD/MEMBER role
+      toggle (owner). Leave-league deferred — nobody's asked to leave a friend league yet
+- [x] Season lifecycle: owner/mod creates one season at a time (week/month/weekend presets,
+      future start = UPCOMING, activated by the cron with stacks); fresh stacks idempotent per
+      [userId, seasonId]; the cron finalizes ended custom seasons but never auto-opens the next
+- [x] Market lifecycle: members propose, owner/mods approve/open/close/resolve/cancel via
+      `requireMarketOperator` (app admins pass everywhere — the deployment safety valve;
+      in the Global League the rule reduces to exactly the old admin-only gate). Custom markets
+      require an active season, must close inside it, inherit league rake/cap verbatim
+- [x] League allowance: [userId, leagueId, allowanceWeek] key, honors the league's
+      weeklyAllowance (0 = off), fresh-stack allowances follow the ACTIVE season
+- [x] Routes: `/leagues` (mine/create/join) + `/l/[slug]` overview/markets/markets/new/
+      leaderboard/settings; market detail is one shared view with a canonical URL per market
+      (global markets redirect off league routes and vice versa) and an inline manage panel
+      for operators; "Leagues" in top nav + user menu; middleware matcher extended
+- [x] Trophies: same season-trophy items; custom finalization grants them with league
+      provenance ("Season 1 · Tahoe Trip")
+- [x] Tests: 9 new integration tests (stack isolation both directions, members-only betting,
+      code rotation, one-stack-per-joiner, operator gating, league-week allowance, settings
+      lock, wait-for-unsettled finalization with by-season attribution, market/season guards);
+      e2e create → season → invite-code join; all suites + build green
+
+Amendments while building (2026-07-12):
+
+- **Custom standings attribute by `market.seasonId`, not the resolution window** — a
+  commissioner resolving the weekend's last market on Monday would otherwise drop it from the
+  standings. Global keeps decision #6's resolution-month attribution (its markets aren't
+  season-pinned by design — decision #3).
+- **Custom seasons don't finalize while OPEN/CLOSED markets remain** — standings would be
+  incomplete. The cron just retries daily; the owner sees the unsettled markets in a
+  "needs your action" list.
+- **Profile career stats stay Global-League-scoped.** Mixing fresh-stack P&L into career
+  numbers would distort them; league performance lives on league pages and in trophy
+  provenance.
+- **Betting is members-only everywhere** (including Global — memberships are backfilled and
+  granted at approval), otherwise a non-member could stake into a stack they were never dealt.
+- `prisma/partial-indexes.sql` holds the SQL-only partial uniques for `db push` environments
+  (integration tests apply it after the push; real deploys get them from migrations).
 
 ---
 

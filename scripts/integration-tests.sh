@@ -16,4 +16,7 @@ export INTEGRATION_TESTS=1
 # plain push (no --force-reset): the DB is a dedicated throwaway and the
 # test suite truncates all tables itself before each test
 npx prisma db push --skip-generate >/dev/null
+# partial unique indexes live outside the Prisma schema — push can't create
+# them, and the season-stack idempotency tests depend on them
+npx prisma db execute --url "$TEST_DATABASE_URL" --file prisma/partial-indexes.sql >/dev/null
 npx vitest run --config vitest.integration.config.ts

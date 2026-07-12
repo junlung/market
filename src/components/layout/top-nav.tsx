@@ -15,6 +15,7 @@ const NAV_LINKS: Array<{ href: Route; label: string }> = [
   { href: "/dashboard", label: "Markets" },
   { href: "/portfolio", label: "Portfolio" },
   { href: "/leaderboard", label: "Leaderboard" },
+  { href: "/leagues", label: "Leagues" },
   { href: "/activity", label: "Activity" },
 ];
 

@@ -3,6 +3,7 @@ import {
   AppLogLevel,
   ItemKind,
   ItemSource,
+  LeagueRole,
   LedgerEntryType,
   MarketStatus,
   Prisma,
@@ -12,7 +13,11 @@ import {
 import { getMonthSeasonName, getMonthWindow, rankByScore } from "@/lib/leagues";
 import { prisma } from "@/lib/prisma";
 import { grantItem } from "@/lib/server/item-service";
-import { ensureGlobalLeague } from "@/lib/server/league-service";
+import {
+  ensureGlobalLeague,
+  grantSeasonStack,
+  requireLeagueRole,
+} from "@/lib/server/league-service";
 
 /**
  * The season a member sees on the leaderboard: opens lazily on read, like the
@@ -68,18 +73,29 @@ export type SeasonStandingRow = {
   rank: number;
 };
 
-type SeasonWindow = { leagueId: string; startsAt: Date; endsAt: Date };
+type SeasonRef = { id: string; leagueId: string; startsAt: Date; endsAt: Date };
 
 /**
- * Season standings per decision #6: realized P&L attributed to the month the
- * market RESOLVES — your score is Σ(payout − your total stake on that market)
- * across markets resolved inside the window. Open positions never move the
- * rank; canceled markets are excluded (their refunds net to zero anyway).
- * Only participants (≥1 settled market in the window) are ranked — every
- * ACTIVE non-participant sits at 0 by definition, and padding the board with
- * unranked zeros is the page's presentation choice, not the standings'.
+ * Season standings. Two attribution modes, one aggregation:
+ *
+ * - Global League (decision #6): realized P&L attributed to the month the
+ *   market RESOLVES — Σ(payout − your total stake) across markets resolved
+ *   inside the window, whenever the bets went in.
+ * - Custom (fresh-stack) leagues: attributed by the market's pinned season
+ *   (market.seasonId) instead of the resolution timestamp, so a commissioner
+ *   resolving the weekend's last market on Monday doesn't drop it from the
+ *   standings. Amended 2026-07-12; finalization waits for unsettled markets.
+ *
+ * Open positions never move the rank; canceled markets are excluded (their
+ * refunds net to zero anyway). Only participants (≥1 settled market) are
+ * ranked — padding the board with unranked zeros is the page's choice.
  */
-export async function getSeasonStandings(season: SeasonWindow): Promise<SeasonStandingRow[]> {
+export async function getSeasonStandings(season: SeasonRef): Promise<SeasonStandingRow[]> {
+  const league = await prisma.league.findUniqueOrThrow({
+    where: { id: season.leagueId },
+    select: { isGlobal: true },
+  });
+
   const entries = await prisma.ledgerEntry.findMany({
     where: {
       leagueId: season.leagueId,
@@ -90,10 +106,12 @@ export async function getSeasonStandings(season: SeasonWindow): Promise<SeasonSt
           LedgerEntryType.MARKET_REFUND,
         ],
       },
-      market: {
-        status: MarketStatus.RESOLVED,
-        resolvedAt: { gte: season.startsAt, lt: season.endsAt },
-      },
+      market: league.isGlobal
+        ? {
+            status: MarketStatus.RESOLVED,
+            resolvedAt: { gte: season.startsAt, lt: season.endsAt },
+          }
+        : { status: MarketStatus.RESOLVED, seasonId: season.id },
       user: { status: UserStatus.ACTIVE },
     },
     select: {
@@ -154,6 +172,24 @@ export async function getGlobalSeasonLeaderboard() {
   return { league, season, standings };
 }
 
+/** All of a league's seasons, newest first (settings page history). */
+export async function listSeasons(leagueId: string, limit = 12) {
+  return prisma.season.findMany({
+    where: { leagueId },
+    orderBy: { index: "desc" },
+    take: limit,
+  });
+}
+
+/** Whether any season has started — the league-settings lock condition. */
+export async function hasStartedSeason(leagueId: string) {
+  const started = await prisma.season.findFirst({
+    where: { leagueId, startsAt: { lte: new Date() } },
+    select: { id: true },
+  });
+  return started !== null;
+}
+
 /** Finalized seasons, newest first, with their frozen standings. */
 export async function listFinalizedSeasons(leagueId: string, limit = 12) {
   return prisma.season.findMany({
@@ -161,6 +197,102 @@ export async function listFinalizedSeasons(leagueId: string, limit = 12) {
     orderBy: { startsAt: "desc" },
     take: limit,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Custom-league seasons (2b): owner-set dates, manual roll
+// ---------------------------------------------------------------------------
+
+/**
+ * Opens a custom league's next season. One season at a time: creation is
+ * rejected while an ACTIVE or UPCOMING season exists — "start the next
+ * season" is an explicit owner action, never an auto-roll (2b decision #5).
+ * A season starting now activates immediately and grants every member their
+ * fresh stack; a future start becomes UPCOMING and the daily cron activates
+ * it (grants included) when its day comes.
+ */
+export async function createSeason(
+  leagueId: string,
+  actorId: string,
+  input: { name?: string; startsAt: Date; endsAt: Date },
+) {
+  await requireLeagueRole(leagueId, actorId, [LeagueRole.OWNER, LeagueRole.MOD]);
+
+  const league = await prisma.league.findUniqueOrThrow({ where: { id: leagueId } });
+  if (league.isGlobal) {
+    throw new Error("Global League seasons roll automatically.");
+  }
+
+  if (!(input.endsAt.getTime() > input.startsAt.getTime())) {
+    throw new Error("The season must end after it starts.");
+  }
+  if (input.endsAt.getTime() <= Date.now()) {
+    throw new Error("The season can't already be over.");
+  }
+
+  const existing = await prisma.season.findFirst({
+    where: { leagueId, status: { in: [SeasonStatus.ACTIVE, SeasonStatus.UPCOMING] } },
+    select: { id: true, name: true, status: true },
+  });
+  if (existing) {
+    throw new Error(`${existing.name} is still ${existing.status.toLowerCase()} — finish it first.`);
+  }
+
+  const lastIndex = await prisma.season.aggregate({ where: { leagueId }, _max: { index: true } });
+  const index = (lastIndex._max.index ?? 0) + 1;
+  const startsNow = input.startsAt.getTime() <= Date.now();
+
+  const season = await prisma.season.create({
+    data: {
+      leagueId,
+      index,
+      name: input.name?.trim() || `Season ${index}`,
+      startsAt: input.startsAt,
+      endsAt: input.endsAt,
+      status: startsNow ? SeasonStatus.ACTIVE : SeasonStatus.UPCOMING,
+    },
+  });
+
+  if (startsNow) {
+    await grantSeasonStacks(season.id);
+  }
+
+  return season;
+}
+
+/** Fresh stacks for every current member of the season's league. Idempotent. */
+async function grantSeasonStacks(seasonId: string) {
+  const season = await prisma.season.findUniqueOrThrow({
+    where: { id: seasonId },
+    include: { league: { include: { memberships: { select: { userId: true } } } } },
+  });
+
+  for (const membership of season.league.memberships) {
+    await grantSeasonStack(membership.userId, season.league, season);
+  }
+}
+
+/**
+ * Cron: flip UPCOMING seasons whose start date arrived to ACTIVE and grant
+ * the stacks. Stacks go first — they're idempotent, so a crash between the
+ * grants and the flip just re-runs; the flip is a guarded updateMany so two
+ * runs can't both claim it.
+ */
+export async function activateDueSeasons(now = new Date()) {
+  const due = await prisma.season.findMany({
+    where: { status: SeasonStatus.UPCOMING, startsAt: { lte: now } },
+    select: { id: true, name: true, leagueId: true },
+  });
+
+  for (const season of due) {
+    await grantSeasonStacks(season.id);
+    await prisma.season.updateMany({
+      where: { id: season.id, status: SeasonStatus.UPCOMING },
+      data: { status: SeasonStatus.ACTIVE },
+    });
+  }
+
+  return due.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,6 +350,12 @@ export type FinalizedSeasonSummary = {
  * - the flip itself is `updateMany where status=ACTIVE`, so two concurrent
  *   runs can't both claim a season;
  * - season opening is unique-constrained per month.
+ *
+ * Custom seasons additionally wait for their markets: while any OPEN/CLOSED
+ * market is still pinned to the season, standings would be incomplete, so
+ * the season stays ACTIVE until the commissioner settles them (amended
+ * 2026-07-12). Global seasons never wait — their attribution is by
+ * resolution month, so a late resolution simply counts next month.
  */
 export async function finalizeDueSeasons(now = new Date()): Promise<FinalizedSeasonSummary[]> {
   const due = await prisma.season.findMany({
@@ -228,6 +366,18 @@ export async function finalizeDueSeasons(now = new Date()): Promise<FinalizedSea
 
   const summaries: FinalizedSeasonSummary[] = [];
   for (const season of due) {
+    if (!season.league.isGlobal) {
+      const unsettled = await prisma.market.count({
+        where: {
+          seasonId: season.id,
+          status: { in: [MarketStatus.OPEN, MarketStatus.CLOSED] },
+        },
+      });
+      if (unsettled > 0) {
+        continue; // waits for the commissioner; the next cron run retries
+      }
+    }
+
     const standings = await getSeasonStandings(season);
     const podium = standings.filter((row) => row.rank <= 3);
 
@@ -287,9 +437,11 @@ export async function finalizeDueSeasons(now = new Date()): Promise<FinalizedSea
   }
 
   // roll the Global League into the new month even on quiet days — the board
-  // shouldn't depend on a member visiting it to exist
+  // shouldn't depend on a member visiting it to exist. Custom leagues never
+  // auto-roll; their UPCOMING seasons just activate when their day arrives.
   const global = await ensureGlobalLeague();
   await ensureCurrentSeason(global.id, now);
+  await activateDueSeasons(now);
 
   return summaries;
 }

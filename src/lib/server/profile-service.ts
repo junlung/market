@@ -1,6 +1,7 @@
 import { LedgerEntryType, MarketStatus, UserStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { listUserItems } from "@/lib/server/item-service";
+import { ensureGlobalLeague } from "@/lib/server/league-service";
 
 const RECENT_RESULTS_LIMIT = 8;
 
@@ -38,34 +39,46 @@ export async function getProfileByUsername(username: string) {
 }
 
 /**
- * Career (all-time) numbers. Same portfolio math as the leaderboard:
- * net profit = balance + at-risk stakes − grants. "Won" means the market
- * paid out (MARKET_PAYOUT only ever goes to winners; refunds are a separate
- * type), "played" counts resolved markets the user had a stake in — canceled
- * markets are refunded and don't count either way.
+ * Career (all-time) numbers, Global League only — the shared economy every
+ * member plays in. Custom-league performance shows up on league pages and as
+ * trophies, not here; mixing fresh-stack P&L into these totals would distort
+ * them (different grants, different stakes). Same portfolio math as the
+ * leaderboard: net profit = balance + at-risk stakes − grants. "Won" means
+ * the market paid out (MARKET_PAYOUT only ever goes to winners; refunds are
+ * a separate type), "played" counts resolved markets the user had a stake
+ * in — canceled markets are refunded and don't count either way.
  */
 async function getCareerStats(userId: string) {
+  const league = await ensureGlobalLeague();
   const [ledgerSums, openStakes, biggestPayout, wonMarkets, resolvedMarkets] = await Promise.all([
     prisma.ledgerEntry.groupBy({
       by: ["type"],
-      where: { userId },
+      where: { userId, leagueId: league.id },
       _sum: { amount: true },
     }),
     prisma.poolStake.aggregate({
-      where: { userId, market: { status: { in: [MarketStatus.OPEN, MarketStatus.CLOSED] } } },
+      where: {
+        userId,
+        market: { status: { in: [MarketStatus.OPEN, MarketStatus.CLOSED] }, leagueId: league.id },
+      },
       _sum: { amount: true },
     }),
     prisma.ledgerEntry.aggregate({
-      where: { userId, type: LedgerEntryType.MARKET_PAYOUT },
+      where: { userId, leagueId: league.id, type: LedgerEntryType.MARKET_PAYOUT },
       _max: { amount: true },
     }),
     prisma.ledgerEntry.findMany({
-      where: { userId, type: LedgerEntryType.MARKET_PAYOUT, marketId: { not: null } },
+      where: {
+        userId,
+        leagueId: league.id,
+        type: LedgerEntryType.MARKET_PAYOUT,
+        marketId: { not: null },
+      },
       select: { marketId: true },
       distinct: ["marketId"],
     }),
     prisma.poolStake.findMany({
-      where: { userId, market: { status: MarketStatus.RESOLVED } },
+      where: { userId, market: { status: MarketStatus.RESOLVED, leagueId: league.id } },
       select: { marketId: true },
       distinct: ["marketId"],
     }),
@@ -96,9 +109,11 @@ async function getCareerStats(userId: string) {
  * (payouts + refunds − stakes), newest settlement first.
  */
 async function getRecentResults(userId: string) {
+  const league = await ensureGlobalLeague();
   const entries = await prisma.ledgerEntry.findMany({
     where: {
       userId,
+      leagueId: league.id,
       marketId: { not: null },
       type: {
         in: [

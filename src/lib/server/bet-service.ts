@@ -3,7 +3,8 @@ import { sumLedgerAmounts } from "@/lib/ledger";
 import { assertSafeInt } from "@/lib/parimutuel";
 import { prisma } from "@/lib/prisma";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { ensureWeeklyAllowance } from "@/lib/server/allowance-service";
+import { ensureLeagueAllowance, ensureWeeklyAllowance } from "@/lib/server/allowance-service";
+import { balanceWhere } from "@/lib/server/league-service";
 import { withSerializableRetry } from "@/lib/server/tx";
 
 export type PlaceBetResult = {
@@ -26,12 +27,24 @@ export async function placeBet(input: {
     throw new Error("Bet at least 1 point.");
   }
 
+  // lazy allowances before the balance check: the global one always, the
+  // market's league one when it has an allowance policy of its own
+  const allowanceTarget = await prisma.market.findUnique({
+    where: { id: input.marketId },
+    select: { league: true },
+  });
   await ensureWeeklyAllowance(input.userId);
+  if (allowanceTarget && !allowanceTarget.league.isGlobal) {
+    await ensureLeagueAllowance(input.userId, allowanceTarget.league);
+  }
 
   return withSerializableRetry(async (tx) => {
     const market = await tx.market.findUnique({
       where: { id: input.marketId },
-      include: { outcomes: { orderBy: { sortOrder: "asc" } } },
+      include: {
+        league: { select: { id: true, balancePolicy: true } },
+        outcomes: { orderBy: { sortOrder: "asc" } },
+      },
     });
 
     if (!market) {
@@ -53,8 +66,24 @@ export async function placeBet(input: {
       throw new Error("This market is past its close time.");
     }
 
+    // custom-league markets are members-only — a non-member betting would
+    // mint a stake from a stack they were never granted
+    const membership = await tx.leagueMembership.findUnique({
+      where: { leagueId_userId: { leagueId: market.leagueId, userId: input.userId } },
+      select: { id: true },
+    });
+    if (!membership) {
+      throw new Error("Only league members can bet on this market.");
+    }
+
+    // spendable balance is scoped to the market's league (and, for
+    // fresh-stack leagues, its season) — Global points can't cross over
     const balanceEntries = await tx.ledgerEntry.findMany({
-      where: { userId: input.userId },
+      where: balanceWhere(input.userId, {
+        leagueId: market.leagueId,
+        balancePolicy: market.league.balancePolicy,
+        seasonId: market.seasonId,
+      }),
       select: { amount: true },
     });
     const balance = sumLedgerAmounts(balanceEntries);
@@ -151,6 +180,7 @@ export async function placeBet(input: {
       data: {
         userId: input.userId,
         leagueId: market.leagueId,
+        seasonId: market.seasonId,
         marketId: input.marketId,
         betId: bet.id,
         type: LedgerEntryType.BET_PLACED,

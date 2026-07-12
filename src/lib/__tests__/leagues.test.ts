@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { getMonthSeasonName, getMonthWindow, rankByScore } from "@/lib/leagues";
+import {
+  formatInviteCode,
+  getMonthSeasonName,
+  getMonthWindow,
+  normalizeInviteCode,
+  rankByScore,
+  suggestLeagueSlug,
+} from "@/lib/leagues";
 
 describe("getMonthWindow", () => {
   it("returns the UTC calendar month containing the date", () => {
@@ -72,5 +79,32 @@ describe("rankByScore", () => {
     ];
     rankByScore(rows);
     expect(rows[0].name).toBe("B");
+  });
+});
+
+describe("suggestLeagueSlug", () => {
+  it("slugifies names like usernames but with a 30-char cap", () => {
+    expect(suggestLeagueSlug("Tahoe Trip 2026!")).toBe("tahoe-trip-2026");
+    expect(suggestLeagueSlug("The Boys™ — Fantasy Degens Anonymous Club")).toBe(
+      "the-boys-fantasy-degens-anonym",
+    );
+  });
+
+  it("falls back to 'league' for unusable or reserved names", () => {
+    expect(suggestLeagueSlug("!!")).toBe("league");
+    expect(suggestLeagueSlug("Global")).toBe("league");
+    expect(suggestLeagueSlug("new")).toBe("league");
+  });
+});
+
+describe("invite codes", () => {
+  it("normalizes case and separators", () => {
+    expect(normalizeInviteCode("abcd-1234")).toBe("ABCD1234");
+    expect(normalizeInviteCode("  ab cd 12:34 ")).toBe("ABCD1234");
+  });
+
+  it("formats stored codes for display", () => {
+    expect(formatInviteCode("ABCD1234")).toBe("ABCD-1234");
+    expect(formatInviteCode("SHORT")).toBe("SHORT");
   });
 });

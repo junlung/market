@@ -37,6 +37,10 @@ type Props = {
   /** Member proposals hide the economy fields — admins set those on review. */
   mode?: "admin" | "propose";
   submitLabel?: string;
+  /** Pins the market to a custom league (economy fields come from its settings). */
+  leagueId?: string;
+  /** Show the "Create & open" button even outside admin mode (league operators). */
+  allowOpenNow?: boolean;
 };
 
 const initialState: MarketFormState = {};
@@ -89,7 +93,7 @@ function nextUnusedColor(rows: OutcomeRow[]): OutcomeColor {
   );
 }
 
-export function MarketForm({ action, market, mode = "admin", submitLabel }: Props) {
+export function MarketForm({ action, market, mode = "admin", submitLabel, leagueId, allowOpenNow }: Props) {
   const [state, formAction, pending] = useActionState(action, initialState);
   const [closeTime, setCloseTime] = useState(
     market ? toInputDateTime(market.closeTime) : toInputDateTime(addHours(new Date(), 24)),
@@ -148,6 +152,7 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
   return (
     <form action={formAction} className="space-y-5 rounded-xl border border-border bg-surface p-5">
       {market ? <input type="hidden" name="marketId" value={market.id} /> : null}
+      {leagueId ? <input type="hidden" name="leagueId" value={leagueId} /> : null}
 
       <div className="grid gap-4 md:grid-cols-2">
         <div>
@@ -403,7 +408,7 @@ export function MarketForm({ action, market, mode = "admin", submitLabel }: Prop
         <Button type="submit" disabled={pending}>
           {pending ? "Saving…" : (submitLabel ?? (market ? "Save market" : "Create market"))}
         </Button>
-        {mode === "admin" && !market ? (
+        {(mode === "admin" || allowOpenNow) && !market ? (
           <Button type="submit" name="openNow" value="true" variant="yes" disabled={pending}>
             {pending ? "Saving…" : "Create & open"}
           </Button>
