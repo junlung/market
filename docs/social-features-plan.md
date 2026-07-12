@@ -147,9 +147,9 @@ zero new permission surface; **2b** adds user-created leagues.
 
 ### Open questions (decide at Phase 2 kickoff)
 
-- Do custom-league markets need a stake-cap/rake override range, or inherit league settings only?
-- Can a market move leagues before its first bet? (Probably no — create it in the right league.)
-- League discovery: browse/join public leagues, or invite-only always?
+- Do custom-league markets need a stake-cap/rake override range, or inherit league settings only? A: Inherit league settings
+- Can a market move leagues before its first bet? (Probably no — create it in the right league.) A: No!
+- League discovery: browse/join public leagues, or invite-only always? A: Always invite-only
 - Navigation: league switcher in the top nav vs. league-scoped routes (`/l/[slug]/...`).
   Leaning route-scoped — it matches the app's server-component style and makes links shareable.
 
