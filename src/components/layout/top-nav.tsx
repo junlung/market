@@ -1,10 +1,11 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { Coins, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { requireSession } from "@/lib/session";
-import { formatPoints } from "@/lib/format";
 import { ensureWeeklyAllowance, hasCurrentWeekAllowance } from "@/lib/server/allowance-service";
+import { getLeagueStacks } from "@/lib/server/league-service";
 import { getUserBalance } from "@/lib/server/market-service";
+import { BalanceMenu } from "@/components/layout/balance-menu";
 import { NavLinks } from "@/components/layout/nav-links";
 import { SearchBox } from "@/components/layout/search-box";
 import { UserMenu } from "@/components/layout/user-menu";
@@ -26,9 +27,10 @@ export async function TopNav() {
   // that lazily credits the weekly allowance on first activity of the week
   await ensureWeeklyAllowance(session.user.id);
 
-  const [balance, allowanceLanded] = await Promise.all([
+  const [balance, allowanceLanded, leagueStacks] = await Promise.all([
     getUserBalance(session.user.id),
     hasCurrentWeekAllowance(session.user.id),
+    getLeagueStacks(session.user.id),
   ]);
 
   return (
@@ -48,15 +50,11 @@ export async function TopNav() {
           <Plus className="size-4" aria-hidden /> Propose
         </Link>
 
-        <Link
-          href="/account"
-          title={allowanceLanded ? "This week's allowance is in" : "Balance"}
-          className="flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1.5 text-sm font-semibold tabular-nums transition-colors hover:bg-border"
-        >
-          <Coins className="size-4 text-warn" aria-hidden />
-          {formatPoints(balance)}
-          {allowanceLanded ? <span className="size-1.5 rounded-full bg-yes" aria-label="Weekly allowance received" /> : null}
-        </Link>
+        <BalanceMenu
+          globalBalance={balance}
+          allowanceLanded={allowanceLanded}
+          leagues={leagueStacks}
+        />
 
         <ThemeToggle />
 

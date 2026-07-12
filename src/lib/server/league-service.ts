@@ -459,6 +459,36 @@ export async function listUserLeagues(userId: string) {
   }));
 }
 
+/**
+ * The viewer's spendable stack in each of their custom leagues — the top-nav
+ * balance menu. Fresh-stack leagues with no running season read as dormant
+ * (their balance is 0 by construction until the next season deals).
+ */
+export async function getLeagueStacks(userId: string) {
+  const memberships = await listUserLeagues(userId);
+  return Promise.all(
+    memberships.map(async ({ league }) => {
+      const season =
+        league.balancePolicy === LeagueBalancePolicy.FRESH_PER_SEASON
+          ? await getActiveSeason(league.id)
+          : null;
+      const balance = await getLeagueBalance(userId, {
+        leagueId: league.id,
+        balancePolicy: league.balancePolicy,
+        seasonId: season?.id ?? null,
+      });
+      return {
+        slug: league.slug,
+        name: league.name,
+        balance,
+        seasonName: season?.name ?? null,
+        dormant:
+          league.balancePolicy === LeagueBalancePolicy.FRESH_PER_SEASON && season === null,
+      };
+    }),
+  );
+}
+
 /** Everyone in the league, owner first, then mods, then join order. */
 export async function listLeagueMembers(leagueId: string) {
   const memberships = await prisma.leagueMembership.findMany({
