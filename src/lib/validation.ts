@@ -84,7 +84,7 @@ export const rejectProposalSchema = z.object({
 export const resolveMarketSchema = z.object({
   marketId: z.string().cuid(),
   winningOutcomeId: outcomeIdSchema,
-  resolutionSource: z.string().trim().min(5).max(280),
+  resolutionSource: z.string().trim().min(5, "Describe the resolution source (5+ characters)."),
   notes: z.string().trim().max(500).optional(),
 });
 

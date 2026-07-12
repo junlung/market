@@ -7,7 +7,7 @@ import { cancelMarketAction, resolveMarketAction } from "@/app/actions/markets";
 import type { ActionResult } from "@/lib/server/market-service";
 import { outcomeColorBg, outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { Button } from "@/components/ui/button";
-import { FieldError, Input, Label, Textarea } from "@/components/ui/input";
+import { FieldError, Label, Textarea } from "@/components/ui/input";
 import { formatPoints, formatSignedPoints } from "@/lib/format";
 
 const initialState: ActionResult = {};
@@ -145,7 +145,7 @@ export function ResolveMarketForm({
 
         <div>
           <Label htmlFor="rf-source">Resolution source</Label>
-          <Input id="rf-source" name="resolutionSource" defaultValue={resolutionSource} required />
+          <Textarea id="rf-source" name="resolutionSource" defaultValue={resolutionSource} required />
         </div>
         <div>
           <Label htmlFor="rf-notes">Notes</Label>

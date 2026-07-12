@@ -153,7 +153,7 @@ export async function resolveMarketAction(_: ActionResult, formData: FormData): 
   });
 
   if (!parsed.success) {
-    return { error: "Resolution details are invalid." };
+    return { error: parsed.error.issues[0]?.message ?? "Resolution details are invalid." };
   }
 
   try {
