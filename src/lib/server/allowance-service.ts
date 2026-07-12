@@ -2,6 +2,7 @@ import { LedgerEntryType, Prisma } from "@prisma/client";
 import { getIsoWeekKey } from "@/lib/allowance";
 import { appConfig } from "@/lib/config";
 import { prisma } from "@/lib/prisma";
+import { ensureGlobalLeague } from "@/lib/server/league-service";
 
 /**
  * Credits the current ISO week's allowance if this user doesn't have it yet.
@@ -24,9 +25,14 @@ export async function ensureWeeklyAllowance(userId: string) {
       return;
     }
 
+    // the weekly allowance is a Global League grant (custom leagues get
+    // their own allowance setting in 2b)
+    const league = await ensureGlobalLeague();
+
     await prisma.ledgerEntry.create({
       data: {
         userId,
+        leagueId: league.id,
         type: LedgerEntryType.WEEKLY_ALLOWANCE,
         amount: appConfig.weeklyAllowance,
         allowanceWeek,

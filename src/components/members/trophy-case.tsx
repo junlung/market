@@ -12,6 +12,18 @@ function itemEmoji(style: unknown) {
   return null;
 }
 
+/** "July 2026 · Global League" — where a season trophy came from. */
+function provenanceLabel(provenance: unknown) {
+  if (!provenance || typeof provenance !== "object") {
+    return null;
+  }
+  const record = provenance as Record<string, unknown>;
+  const parts = [record.seasonName, record.league].filter(
+    (part): part is string => typeof part === "string" && part.length > 0,
+  );
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 export function TrophyCase({ inventory, ownProfile }: { inventory: Inventory; ownProfile: boolean }) {
   if (inventory.length === 0) {
     return (
@@ -31,6 +43,7 @@ export function TrophyCase({ inventory, ownProfile }: { inventory: Inventory; ow
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {inventory.map((owned) => {
         const emoji = itemEmoji(owned.item.style);
+        const wonAt = provenanceLabel(owned.provenance);
         return (
           <div
             key={owned.id}
@@ -43,6 +56,7 @@ export function TrophyCase({ inventory, ownProfile }: { inventory: Inventory; ow
               <p className="truncate text-sm font-semibold">{owned.item.name}</p>
               <p className="line-clamp-2 text-xs text-muted">{owned.item.description}</p>
               <p className="mt-1 text-[11px] text-faint">
+                {wonAt ? <>{wonAt} · </> : null}
                 <LocalTime date={owned.grantedAt} mode="date" />
               </p>
             </div>

@@ -6,6 +6,8 @@ import { BINARY_PRESET } from "../src/lib/outcome-colors";
 import { prisma } from "../src/lib/prisma";
 import { placeBet } from "../src/lib/server/bet-service";
 import { createComment } from "../src/lib/server/comment-service";
+import { ensureGlobalLeague, ensureLeagueMembership } from "../src/lib/server/league-service";
+import { ensureCurrentSeason } from "../src/lib/server/season-service";
 import {
   cancelMarket,
   closeMarket,
@@ -21,6 +23,8 @@ function daysFromNow(days: number) {
 }
 
 async function seedUsers(defaultPassword: string) {
+  const globalLeague = await ensureGlobalLeague();
+  await ensureCurrentSeason(globalLeague.id);
   const passwordHash = await hash(defaultPassword, 12);
   const users = [
     { email: "admin@prollymarket.local", name: "League Admin", username: "league-admin", role: UserRole.ADMIN },
@@ -52,6 +56,8 @@ async function seedUsers(defaultPassword: string) {
   const lastWeekKey = getIsoWeekKey(new Date(Date.now() - 7 * DAY));
 
   for (const user of persisted) {
+    await ensureLeagueMembership(globalLeague.id, user.id);
+
     const existingGrant = await prisma.ledgerEntry.findFirst({
       where: { userId: user.id, type: LedgerEntryType.INITIAL_GRANT },
     });
@@ -60,6 +66,7 @@ async function seedUsers(defaultPassword: string) {
       await prisma.ledgerEntry.create({
         data: {
           userId: user.id,
+          leagueId: globalLeague.id,
           type: LedgerEntryType.INITIAL_GRANT,
           amount: appConfig.startingBalance,
           description: "Starting balance",
@@ -74,6 +81,7 @@ async function seedUsers(defaultPassword: string) {
         update: {},
         create: {
           userId: user.id,
+          leagueId: globalLeague.id,
           type: LedgerEntryType.WEEKLY_ALLOWANCE,
           amount: appConfig.weeklyAllowance,
           allowanceWeek: lastWeekKey,

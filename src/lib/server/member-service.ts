@@ -1,6 +1,7 @@
 import { AppLogEventType, AppLogLevel, LedgerEntryType, UserStatus } from "@prisma/client";
 import { appConfig } from "@/lib/config";
 import { prisma } from "@/lib/prisma";
+import { ensureGlobalLeague, ensureLeagueMembership } from "@/lib/server/league-service";
 
 function logMembershipAction(message: string, actorId: string) {
   return prisma.appLog.create({
@@ -19,6 +20,8 @@ function logMembershipAction(message: string, actorId: string) {
  * rejected/junk signups never receive points.
  */
 export async function approveUser(userId: string, adminId: string, note?: string) {
+  const globalLeague = await ensureGlobalLeague();
+
   await prisma.$transaction(async (tx) => {
     // status guard inside the tx: double-approval must not double-grant
     const updated = await tx.user.updateMany({
@@ -44,6 +47,7 @@ export async function approveUser(userId: string, adminId: string, note?: string
       await tx.ledgerEntry.create({
         data: {
           userId,
+          leagueId: globalLeague.id,
           type: LedgerEntryType.INITIAL_GRANT,
           amount: appConfig.startingBalance,
           description: "Starting balance",
@@ -51,6 +55,10 @@ export async function approveUser(userId: string, adminId: string, note?: string
       });
     }
   });
+
+  // approval is when a member joins the Global League (idempotent — the
+  // migration backfill or a prior reject/approve cycle may have enrolled them)
+  await ensureLeagueMembership(globalLeague.id, userId);
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   await logMembershipAction(`Approved member: ${user.name} (${user.email})`, adminId);

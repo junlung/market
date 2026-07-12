@@ -4,6 +4,9 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   NEXTAUTH_SECRET: z.string().min(16),
   NEXTAUTH_URL: z.string().url().optional(),
+  // shared secret for Vercel cron invocations (api/cron/*) — the routes
+  // reject every request when it's unset
+  CRON_SECRET: z.string().min(16).optional(),
   SEED_DEFAULT_PASSWORD: z.string().min(8).optional(),
   STARTING_BALANCE: z.coerce.number().int().positive().default(500),
   WEEKLY_ALLOWANCE: z.coerce.number().int().positive().default(100),
@@ -18,6 +21,7 @@ export const env = envSchema.parse({
   DATABASE_URL: process.env.DATABASE_URL,
   NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET,
   NEXTAUTH_URL: process.env.NEXTAUTH_URL,
+  CRON_SECRET: process.env.CRON_SECRET,
   SEED_DEFAULT_PASSWORD: process.env.SEED_DEFAULT_PASSWORD,
   STARTING_BALANCE: process.env.STARTING_BALANCE,
   WEEKLY_ALLOWANCE: process.env.WEEKLY_ALLOWANCE,

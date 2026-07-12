@@ -150,6 +150,7 @@ export async function placeBet(input: {
     await tx.ledgerEntry.create({
       data: {
         userId: input.userId,
+        leagueId: market.leagueId,
         marketId: input.marketId,
         betId: bet.id,
         type: LedgerEntryType.BET_PLACED,

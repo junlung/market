@@ -1,10 +1,11 @@
 # Social Features Plan
 
-**Status: Phase 1 implemented on `social-update`** (2026-07-12; verified locally — unit,
-integration, and e2e suites green. Prod rollout = merge + deploy; the migration backfills
-usernames automatically). Phase 2 is next. This is a living document — update the
-phase checklists and the decisions log as work lands. Decisions below were made with Jon on
-2026-07-12; don't silently reverse them, add a dated amendment instead.
+**Status: Phase 1 implemented on `social-update`; Phase 2a implemented on `leagues`**
+(2026-07-12; both verified locally — unit, integration, and e2e suites green. Prod rollout =
+merge + deploy; migrations backfill usernames and league scoping automatically. 2a also needs
+`CRON_SECRET` set in Vercel env before deploy). Phase 2b is next. This is a living document —
+update the phase checklists and the decisions log as work lands. Decisions below were made with
+Jon on 2026-07-12; don't silently reverse them, add a dated amendment instead.
 
 ## Vision
 
@@ -152,6 +153,53 @@ zero new permission surface; **2b** adds user-created leagues.
 - League discovery: browse/join public leagues, or invite-only always? A: Always invite-only
 - Navigation: league switcher in the top nav vs. league-scoped routes (`/l/[slug]/...`).
   Leaning route-scoped — it matches the app's server-component style and makes links shareable.
+
+### Phase 2a — shipped (2026-07-12, branch `leagues`)
+
+Scope: the season/reset/trophy loop on the Global League, zero new permission surface.
+
+- [x] Schema + migration (`prisma/migrations/20260712120000_leagues_seasons`): `League`
+      (partial unique index enforces exactly one `isGlobal`), `LeagueMembership`, `Season`;
+      `Market.leagueId` and `LedgerEntry.leagueId` added NOT NULL and backfilled to the Global
+      League; every existing user enrolled. `seasonId` columns deferred to 2b (only
+      fresh-stack leagues need them).
+- [x] `src/lib/leagues.ts`: UTC month window/name helpers + shared competition ranking
+- [x] `src/lib/server/league-service.ts`: `ensureGlobalLeague` (self-healing bootstrap for
+      fresh DBs — tests/`db push` never see the migration's insert), `ensureLeagueMembership`
+      (granted at account approval, like the starting balance)
+- [x] `src/lib/server/season-service.ts`: `ensureCurrentSeason` (lazy-on-read like the weekly
+      allowance — opening a season has no side effects, so it needn't wait for the cron;
+      race-safe via unique `[leagueId, startsAt]`), `getSeasonStandings` (decision #6 query),
+      `finalizeDueSeasons` (trophies before the status flip so a mid-run crash re-runs
+      idempotently; the flip is a guarded `updateMany` so concurrent runs can't double-claim)
+- [x] Every ledger/market write path stamps `leagueId` (bets, settlement, allowance, initial
+      grants, seed, create-admin script)
+- [x] First Vercel cron: `vercel.ts` (`@vercel/config`) schedules
+      `/api/cron/finalize-seasons` daily 00:05 UTC; route rejects anything without
+      `Authorization: Bearer CRON_SECRET`. Daily because the handler is idempotent — 364 runs
+      no-op, the month-boundary one finalizes + rolls.
+- [x] Leaderboard page: tabbed — current season (default; podium, W/settled record, past-season
+      champions strip from frozen standings) and the original all-time board
+- [x] Trophy case renders season provenance ("July 2026 · Global League")
+- [x] Tests: unit (month windows, ranking), integration (bootstrap + season-open races,
+      decision #6 attribution incl. cross-month bets, open/canceled/out-of-window exclusion,
+      finalization freezes standings + grants exactly once + rolls), e2e suite still green
+
+Amendments / small decisions made while building (2026-07-12):
+
+- **Season window = UTC calendar month**, same determinism rationale as the allowance week key.
+- **Standings rank participants only** (≥1 market *settled* in the window). Ranking every
+  ACTIVE user would let zero-activity members outrank a net-negative participant, which reads
+  wrong next to trophies. The page still lists non-participants, unranked, so the full roster
+  stays visible (and new members see themselves at 0 — decision #3's spirit).
+- **Trophies**: three reusable `Item` defs (`season-champion/-runner-up/-third`), granted to
+  competition ranks 1–3 among participants, `grantKey = season:{seasonId}:user:{userId}`,
+  provenance carries league/season/placement/score. Ties grant duplicates at the tied rank and
+  skip the next (1,1,3). A season with zero participants finalizes with no trophies.
+- **Frozen standings** live as Json on `Season` (display/audit only — live standings are always
+  recomputed from the ledger).
+- **Balance reads stay league-unscoped in 2a** — all data belongs to the one league, so
+  scoping reads is observable-noop plumbing; it lands with 2b when a second economy exists.
 
 ---
 

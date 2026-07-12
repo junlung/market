@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   // Neon's Vercel integration provides both URLs: the app runs through the
   // pooler, but migrations need the direct (unpooled) connection.
   directUrl = env("DATABASE_URL_UNPOOLED")
@@ -89,6 +89,31 @@ enum EquipSlot {
   BACKGROUND
 }
 
+// Leagues (see docs/social-features-plan.md, Phase 2). Phase 2a ships only
+// the Global League; joinPolicy/ownerId/roles come alive with user-created
+// leagues in 2b.
+enum LeagueJoinPolicy {
+  INVITE_CODE
+  APPROVAL
+}
+
+enum LeagueBalancePolicy {
+  PERSISTENT
+  FRESH_PER_SEASON
+}
+
+enum LeagueRole {
+  OWNER
+  MOD
+  MEMBER
+}
+
+enum SeasonStatus {
+  UPCOMING
+  ACTIVE
+  FINALIZED
+}
+
 model User {
   id           String     @id @default(cuid())
   email        String     @unique
@@ -108,18 +133,20 @@ model User {
 
   // a member vouching for a pending account (visible to admins in the queue)
   vouchedById  String?
-  vouchedBy    User?      @relation("Vouches", fields: [vouchedById], references: [id], onDelete: SetNull)
+  vouchedBy    User?   @relation("Vouches", fields: [vouchedById], references: [id], onDelete: SetNull)
   vouchNote    String?
-  vouchesGiven User[]     @relation("Vouches")
+  vouchesGiven User[]  @relation("Vouches")
 
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  bets          Bet[]
-  poolStakes    PoolStake[]
-  ledgerEntries LedgerEntry[]
-  comments      Comment[]
-  appLogs       AppLog[]
-  items         UserItem[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  bets              Bet[]
+  poolStakes        PoolStake[]
+  ledgerEntries     LedgerEntry[]
+  comments          Comment[]
+  appLogs           AppLog[]
+  items             UserItem[]
+  leagueMemberships LeagueMembership[]
+  ownedLeagues      League[]           @relation("LeagueOwner")
 
   @@index([status, createdAt])
 }
@@ -145,16 +172,16 @@ model Item {
 // same Item are allowed when provenance differs (e.g. the same championship
 // trophy won in two different seasons).
 model UserItem {
-  id     String     @id @default(cuid())
-  userId String
-  itemId String
-  source ItemSource
+  id           String     @id @default(cuid())
+  userId       String
+  itemId       String
+  source       ItemSource
   // e.g. { "league": "Global League", "seasonId": "...", "placement": 1 }
-  provenance Json?
+  provenance   Json?
   // idempotency key for automated grants (season finalization, achievements)
   // — same pattern as LedgerEntry [userId, allowanceWeek]. Null for manual
   // grants and purchases.
-  grantKey String? @unique
+  grantKey     String?    @unique
   // at most one equipped item per slot, enforced in the equip transaction
   // (Prisma can't express a partial unique index)
   equippedSlot EquipSlot?
@@ -167,21 +194,89 @@ model UserItem {
   @@index([itemId])
 }
 
+// A competition context: markets, memberships, seasons, and ledger entries
+// are all league-scoped. Exactly one row has isGlobal = true (enforced by a
+// partial unique index in SQL — Prisma can't express it); the global league
+// has no owner and a PERSISTENT balance policy (seasons are leaderboard
+// windows, not economy resets — decision #3).
+model League {
+  id            String              @id @default(cuid())
+  slug          String              @unique
+  name          String
+  description   String?
+  isGlobal      Boolean             @default(false)
+  ownerId       String?
+  owner         User?               @relation("LeagueOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  joinPolicy    LeagueJoinPolicy    @default(INVITE_CODE)
+  balancePolicy LeagueBalancePolicy @default(FRESH_PER_SEASON)
+  createdAt     DateTime            @default(now())
+
+  memberships   LeagueMembership[]
+  seasons       Season[]
+  markets       Market[]
+  ledgerEntries LedgerEntry[]
+}
+
+// Everyone auto-joins the global league (backfilled in the migration, granted
+// at account approval for new members). Roles gate nothing in 2a — app admins
+// keep running the Global League; per-league permissions arrive in 2b.
+model LeagueMembership {
+  id       String     @id @default(cuid())
+  leagueId String
+  userId   String
+  role     LeagueRole @default(MEMBER)
+  joinedAt DateTime   @default(now())
+
+  league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([leagueId, userId])
+  @@index([userId])
+}
+
+// A leaderboard window. Global League seasons are UTC calendar months,
+// opened lazily on read (like the weekly allowance) and finalized by the
+// daily cron, which freezes `standings` and grants the trophies.
+model Season {
+  id          String       @id @default(cuid())
+  leagueId    String
+  index       Int
+  name        String
+  startsAt    DateTime
+  endsAt      DateTime
+  status      SeasonStatus @default(ACTIVE)
+  finalizedAt DateTime?
+  // frozen at finalization: ranked participants
+  // [{ userId, name, username, score, marketsSettled, marketsWon, rank }]
+  standings   Json?
+
+  league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@unique([leagueId, index])
+  @@unique([leagueId, startsAt])
+  @@index([leagueId, status])
+}
+
 model Market {
-  id               String            @id @default(cuid())
+  id               String       @id @default(cuid())
   title            String
   description      String
   category         String
   closeTime        DateTime
   resolveTime      DateTime
   resolutionSource String
-  status           MarketStatus      @default(DRAFT)
+  status           MarketStatus @default(DRAFT)
+
+  // every market lives in exactly one league (backfilled to the Global
+  // League); a market never moves leagues (decisions log, Phase 2)
+  leagueId String
+  league   League @relation(fields: [leagueId], references: [id], onDelete: Restrict)
 
   // Invariant: RESOLVED ⇒ winningOutcomeId != null. CANCELED derives from
   // status alone. Restrict: a winning outcome row can never be deleted from
   // under its market.
   winningOutcomeId String?
-  winningOutcome   Outcome? @relation("MarketWinningOutcome", fields: [winningOutcomeId], references: [id], onDelete: Restrict)
+  winningOutcome   Outcome?  @relation("MarketWinningOutcome", fields: [winningOutcomeId], references: [id], onDelete: Restrict)
   outcomes         Outcome[] @relation("MarketOutcomes")
 
   // legacy release-1 columns, dual-written for binary markets — dropped in
@@ -223,6 +318,7 @@ model Market {
   @@index([status, closeTime])
   @@index([category, status])
   @@index([createdById, status])
+  @@index([leagueId, status])
 }
 
 // One named outcome of a market (2–6 per market, fixed at creation).
@@ -281,11 +377,11 @@ model Bet {
 
 // A user's aggregate stake on one outcome. Rows exist only where amount > 0.
 model PoolStake {
-  id        String   @id @default(cuid())
+  id        String @id @default(cuid())
   userId    String
   marketId  String
   outcomeId String
-  amount    Int      @default(0)
+  amount    Int    @default(0)
 
   // legacy release-1 columns, dual-written for binary markets — dropped in
   // the contract release
@@ -305,6 +401,9 @@ model PoolStake {
 model LedgerEntry {
   id            String          @id @default(cuid())
   userId        String
+  // the points economy this entry belongs to (backfilled to the Global
+  // League) — balances become league-scoped when custom leagues land in 2b
+  leagueId      String
   marketId      String?
   betId         String?
   type          LedgerEntryType
@@ -313,12 +412,14 @@ model LedgerEntry {
   description   String
   createdAt     DateTime        @default(now())
   user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  league        League          @relation(fields: [leagueId], references: [id], onDelete: Restrict)
   market        Market?         @relation(fields: [marketId], references: [id], onDelete: SetNull)
   bet           Bet?            @relation(fields: [betId], references: [id], onDelete: SetNull)
 
   @@unique([userId, allowanceWeek])
   @@index([userId, createdAt])
   @@index([marketId, createdAt])
+  @@index([leagueId, userId])
 }
 
 model MarketResolution {
@@ -331,11 +432,11 @@ model MarketResolution {
   // settlement audit — burned points are recorded here, not in the user ledger.
   // Invariant: winningPool + losingPool === totalPaidOut + rakeAmount + dustAmount,
   // and Σ Outcome.poolFinal === winningPool + losingPool
-  winningPool  Int
-  losingPool   Int
-  rakeAmount   Int
-  dustAmount   Int
-  totalPaidOut Int
+  winningPool      Int
+  losingPool       Int
+  rakeAmount       Int
+  dustAmount       Int
+  totalPaidOut     Int
 
   // legacy release-1 columns, dual-written for binary markets — dropped in
   // the contract release

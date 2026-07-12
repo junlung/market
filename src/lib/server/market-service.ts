@@ -25,6 +25,7 @@ import {
   type SettlementResult,
 } from "@/lib/parimutuel";
 import { prisma } from "@/lib/prisma";
+import { ensureGlobalLeague } from "@/lib/server/league-service";
 import { withSerializableRetry } from "@/lib/server/tx";
 
 export type ActionResult = {
@@ -148,9 +149,13 @@ export async function createMarket(input: {
   assertSafeInt(maxStakePerUser, "Stake cap");
   assertSafeInt(rakeBps, "Rake");
 
+  // all markets live in the Global League until custom leagues land (2b)
+  const league = await ensureGlobalLeague();
+
   const market = await prisma.market.create({
     data: {
       ...input.fields,
+      leagueId: league.id,
       status: input.openNow ? MarketStatus.OPEN : MarketStatus.DRAFT,
       maxStakePerUser,
       rakeBps,
@@ -178,9 +183,12 @@ export async function proposeMarket(input: {
   validateMarketDraft(input.fields);
   validateOutcomeDrafts(input.outcomes);
 
+  const league = await ensureGlobalLeague();
+
   const market = await prisma.market.create({
     data: {
       ...input.fields,
+      leagueId: league.id,
       status: MarketStatus.PROPOSED,
       maxStakePerUser: appConfig.defaultMaxStakePerUser,
       rakeBps: appConfig.rakeBps,
@@ -434,6 +442,7 @@ async function writeSettlement(input: {
       await tx.ledgerEntry.createMany({
         data: result.payouts.map((payout) => ({
           userId: payout.userId,
+          leagueId: market.leagueId,
           marketId: input.marketId,
           type: payout.kind === "REFUND" ? LedgerEntryType.MARKET_REFUND : LedgerEntryType.MARKET_PAYOUT,
           amount: payout.amount,

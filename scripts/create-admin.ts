@@ -12,6 +12,7 @@
 import { LedgerEntryType, UserRole, UserStatus } from "@prisma/client";
 import { appConfig } from "../src/lib/config";
 import { prisma } from "../src/lib/prisma";
+import { ensureGlobalLeague, ensureLeagueMembership } from "../src/lib/server/league-service";
 
 async function main() {
   const email = process.argv[2]?.trim().toLowerCase();
@@ -29,6 +30,8 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+
+  const globalLeague = await ensureGlobalLeague();
 
   await prisma.$transaction(async (tx) => {
     await tx.user.update({
@@ -49,6 +52,7 @@ async function main() {
       await tx.ledgerEntry.create({
         data: {
           userId: user.id,
+          leagueId: globalLeague.id,
           type: LedgerEntryType.INITIAL_GRANT,
           amount: appConfig.startingBalance,
           description: "Starting balance",
@@ -56,6 +60,8 @@ async function main() {
       });
     }
   });
+
+  await ensureLeagueMembership(globalLeague.id, user.id);
 
   console.log(`${user.name} <${email}> is now an active admin.`);
 }

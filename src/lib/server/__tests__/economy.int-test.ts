@@ -11,12 +11,17 @@ import { getIsoWeekKey } from "@/lib/allowance";
 import { prisma } from "@/lib/prisma";
 import { ensureWeeklyAllowance } from "@/lib/server/allowance-service";
 import { placeBet } from "@/lib/server/bet-service";
+import { ensureGlobalLeague } from "@/lib/server/league-service";
 import { cancelMarket, resolveMarket } from "@/lib/server/market-service";
 import { approveUser, rejectUser } from "@/lib/server/member-service";
 
 const enabled = process.env.INTEGRATION_TESTS === "1";
 
 let counter = 0;
+
+async function globalLeagueId() {
+  return (await ensureGlobalLeague()).id;
+}
 
 async function createUser(balance: number, role: UserRole = UserRole.MEMBER) {
   counter += 1;
@@ -35,6 +40,7 @@ async function createUser(balance: number, role: UserRole = UserRole.MEMBER) {
     await prisma.ledgerEntry.create({
       data: {
         userId: user.id,
+        leagueId: await globalLeagueId(),
         type: LedgerEntryType.INITIAL_GRANT,
         amount: balance,
         description: "test grant",
@@ -47,6 +53,7 @@ async function createUser(balance: number, role: UserRole = UserRole.MEMBER) {
   await prisma.ledgerEntry.create({
     data: {
       userId: user.id,
+      leagueId: await globalLeagueId(),
       type: LedgerEntryType.WEEKLY_ALLOWANCE,
       amount: 0,
       allowanceWeek: getIsoWeekKey(new Date()),
@@ -76,6 +83,7 @@ async function createOpenMarket(
   const market = await prisma.market.create({
     data: {
       title: `Integration market ${counter}`,
+      leagueId: await globalLeagueId(),
       description: "integration test market",
       category: "Test",
       closeTime: new Date(Date.now() + 60 * 60 * 1000),
