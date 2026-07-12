@@ -1,11 +1,13 @@
 import Link from "next/link";
-import { Compass, Gift, Plus, TrendingUp, Trophy } from "lucide-react";
+import type { Route } from "next";
+import { Compass, Crown, Gift, Plus, TrendingUp, Trophy } from "lucide-react";
 import { CategoryTabs } from "@/components/markets/category-tabs";
 import { MarketCard } from "@/components/markets/market-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { buttonClasses } from "@/components/ui/button";
 import { formatPoints, formatRelativeTime } from "@/lib/format";
 import { getNextIsoWeekStart } from "@/lib/allowance";
+import { listUserLeagues } from "@/lib/server/league-service";
 import {
   getDashboardMarkets,
   getLeaderboard,
@@ -22,15 +24,32 @@ export default async function DashboardPage({
   const session = await requireSession();
   const { category, q } = await searchParams;
 
-  const [markets, categories, leaderboard, balance] = await Promise.all([
+  const [markets, categories, leaderboard, balance, myLeagues] = await Promise.all([
     getDashboardMarkets(session.user.id, { category, query: q }),
     getOpenCategories(),
     getLeaderboard(),
     getUserBalance(session.user.id),
+    listUserLeagues(session.user.id),
   ]);
+
+  // the same search/category filters apply inside each of the viewer's
+  // leagues; leagues with nothing open (or nothing matching) stay out of view
+  const leagueSections = (
+    await Promise.all(
+      myLeagues.map(async ({ league }) => ({
+        league,
+        markets: await getDashboardMarkets(session.user.id, {
+          category,
+          query: q,
+          leagueId: league.id,
+        }),
+      })),
+    )
+  ).filter((section) => section.markets.length > 0);
 
   const rank = leaderboard.findIndex((row) => row.userId === session.user.id) + 1;
   const nextAllowance = getNextIsoWeekStart(new Date());
+  const nothingAnywhere = markets.length === 0 && leagueSections.length === 0;
 
   return (
     <div className="space-y-5">
@@ -61,7 +80,7 @@ export default async function DashboardPage({
 
       <CategoryTabs categories={categories} active={category} query={q} />
 
-      {markets.length === 0 ? (
+      {nothingAnywhere ? (
         <EmptyState
           icon={Compass}
           title={q || category ? "Nothing matches" : "No open markets"}
@@ -76,6 +95,12 @@ export default async function DashboardPage({
             </Link>
           }
         />
+      ) : markets.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-border bg-surface p-4 text-center text-sm text-muted">
+          {q || category
+            ? "No Global League markets match — but your leagues have some below."
+            : "No open Global League markets right now — your leagues are live below."}
+        </p>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {markets.map((market) => (
@@ -83,6 +108,33 @@ export default async function DashboardPage({
           ))}
         </div>
       )}
+
+      {leagueSections.map(({ league, markets: leagueMarkets }) => (
+        <div key={league.id} className="space-y-3 border-t border-border pt-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              <Crown className="size-4 text-primary" aria-hidden />
+              <Link href={`/l/${league.slug}` as Route} className="hover:text-primary">
+                {league.name}
+              </Link>
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                League
+              </span>
+            </h2>
+            <Link
+              href={`/l/${league.slug}/markets` as Route}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              All {league.name} markets →
+            </Link>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {leagueMarkets.map((market) => (
+              <MarketCard key={market.id} market={market} hrefBase={`/l/${league.slug}/markets`} />
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

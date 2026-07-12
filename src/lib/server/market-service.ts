@@ -966,18 +966,29 @@ export async function getMarketDetail(marketId: string, userId: string) {
   };
 }
 
+/**
+ * A user's live positions — all leagues by default (stakes are the viewer's
+ * own, so the portfolio can mix leagues safely; rows carry the league for
+ * badges and canonical links). Pass leagueId to scope to one league.
+ */
 export async function getActiveStakes(userId: string, leagueId?: string) {
-  const scopedLeagueId = leagueId ?? (await ensureGlobalLeague()).id;
   const stakes = await prisma.poolStake.findMany({
     where: {
       userId,
       amount: { gt: 0 },
       market: {
         status: { in: [MarketStatus.OPEN, MarketStatus.CLOSED] },
-        leagueId: scopedLeagueId,
+        ...(leagueId ? { leagueId } : {}),
       },
     },
-    include: { market: { include: { outcomes: { orderBy: { sortOrder: "asc" } } } } },
+    include: {
+      market: {
+        include: {
+          outcomes: { orderBy: { sortOrder: "asc" } },
+          league: { select: { slug: true, name: true, isGlobal: true } },
+        },
+      },
+    },
     orderBy: { updatedAt: "desc" },
   });
 
@@ -1019,6 +1030,7 @@ export async function getActiveStakes(userId: string, leagueId?: string) {
       category: market.category,
       status: market.status,
       closeTime: market.closeTime,
+      league: market.league,
       leader: odds.leader,
       leaderTied: odds.leaderTied,
       positions,
@@ -1028,21 +1040,22 @@ export async function getActiveStakes(userId: string, leagueId?: string) {
   });
 }
 
+/** Settled positions — same all-leagues default as getActiveStakes. */
 export async function getResolvedStakes(userId: string, leagueId?: string) {
-  const scopedLeagueId = leagueId ?? (await ensureGlobalLeague()).id;
   const stakes = await prisma.poolStake.findMany({
     where: {
       userId,
       amount: { gt: 0 },
       market: {
         status: { in: [MarketStatus.RESOLVED, MarketStatus.CANCELED] },
-        leagueId: scopedLeagueId,
+        ...(leagueId ? { leagueId } : {}),
       },
     },
     include: {
       market: {
         include: {
           outcomes: { orderBy: { sortOrder: "asc" } },
+          league: { select: { slug: true, name: true, isGlobal: true } },
           ledgerEntries: {
             where: {
               userId,
@@ -1075,6 +1088,7 @@ export async function getResolvedStakes(userId: string, leagueId?: string) {
       title: market.title,
       category: market.category,
       status: market.status,
+      league: market.league,
       canceled,
       winningLabel: winningOutcome ? outcomeDisplayLabel(winningOutcome) : null,
       winningColor: winningOutcome?.color ?? null,
@@ -1090,11 +1104,19 @@ export async function getResolvedStakes(userId: string, leagueId?: string) {
 }
 
 export async function getBetHistory(userId: string) {
-  const league = await ensureGlobalLeague();
+  // all leagues — these are the viewer's own bets; rows carry the league
+  // for badges and canonical links
   return prisma.bet.findMany({
-    where: { userId, market: { leagueId: league.id } },
+    where: { userId },
     include: {
-      market: { select: { id: true, title: true, status: true } },
+      market: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          league: { select: { slug: true, name: true, isGlobal: true } },
+        },
+      },
       outcome: { select: { label: true, color: true, emoji: true } },
     },
     orderBy: { createdAt: "desc" },

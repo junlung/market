@@ -48,6 +48,11 @@ export function formatInviteCode(code: string) {
   return code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
 }
 
+/** Canonical URL for a market — global at /markets, league markets at /l/[slug]. */
+export function marketPath(league: { slug: string; isGlobal: boolean }, marketId: string) {
+  return league.isGlobal ? `/markets/${marketId}` : `/l/${league.slug}/markets/${marketId}`;
+}
+
 /**
  * UTC calendar-month window containing `date` — the Global League's season
  * bounds. UTC deliberately, like the allowance week key: deterministic

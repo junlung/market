@@ -266,6 +266,12 @@ Amendments while building (2026-07-12):
   granted at approval), otherwise a non-member could stake into a stack they were never dealt.
 - `prisma/partial-indexes.sql` holds the SQL-only partial uniques for `db push` environments
   (integration tests apply it after the push; real deploys get them from migrations).
+- **League markets surface on the main views** (follow-up, same day): the dashboard shows a
+  section per joined league (same search/category filters, cards link into the league);
+  portfolio and bet history include league positions with a league chip and canonical
+  `/l/[slug]` links. Safe because those are the viewer's own stakes/bets — market *discovery*
+  for non-members still doesn't exist anywhere. The activity feed stays Global-only; league
+  feeds live on the league overview.
 
 ---
 

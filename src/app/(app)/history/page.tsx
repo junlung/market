@@ -1,10 +1,13 @@
 import { LocalTime } from "@/components/ui/local-time";
 import Link from "next/link";
+import type { Route } from "next";
 import { ReceiptText } from "lucide-react";
+import { LeagueChip } from "@/components/leagues/league-chip";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { OutcomeDot } from "@/components/markets/outcome-dot";
 import { formatPoints } from "@/lib/format";
+import { marketPath } from "@/lib/leagues";
 import { outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { getBetHistory } from "@/lib/server/market-service";
 import { requireSession } from "@/lib/session";
@@ -39,12 +42,15 @@ export default async function HistoryPage() {
               {bets.map((bet) => (
                 <tr key={bet.id} className="transition-colors hover:bg-surface-2">
                   <td className="max-w-64 px-4 py-2.5">
-                    <Link
-                      href={`/markets/${bet.market.id}`}
-                      className="line-clamp-1 font-medium hover:text-primary"
-                    >
-                      {bet.market.title}
-                    </Link>
+                    <span className="flex items-center gap-2">
+                      <Link
+                        href={marketPath(bet.market.league, bet.market.id) as Route}
+                        className="line-clamp-1 min-w-0 font-medium hover:text-primary"
+                      >
+                        {bet.market.title}
+                      </Link>
+                      <LeagueChip league={bet.market.league} />
+                    </span>
                   </td>
                   <td className="px-4 py-2.5">
                     <span className="inline-flex items-center gap-1.5">

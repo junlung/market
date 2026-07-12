@@ -1,7 +1,9 @@
 import { LocalTime } from "@/components/ui/local-time";
 import Link from "next/link";
+import type { Route } from "next";
 import { Wallet } from "lucide-react";
 import clsx from "clsx";
+import { LeagueChip } from "@/components/leagues/league-chip";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { ProbabilityChip } from "@/components/ui/probability-chip";
@@ -10,6 +12,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { buttonClasses } from "@/components/ui/button";
 import { OutcomeDot } from "@/components/markets/outcome-dot";
 import { formatPoints, formatSignedPoints } from "@/lib/format";
+import { marketPath } from "@/lib/leagues";
 import { outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { getActiveStakes, getResolvedStakes } from "@/lib/server/market-service";
 import { requireSession } from "@/lib/session";
@@ -27,13 +30,16 @@ export default async function PortfolioPage() {
 
   return (
     <section className="space-y-5">
-      <PageHeader title="Portfolio" description="Your live stakes and settled results." />
+      <PageHeader
+        title="Portfolio"
+        description="Your live stakes and settled results — Global League and your leagues together."
+      />
 
       <div className="grid gap-3 sm:grid-cols-3">
         <StatCard
           label="At stake"
           value={`${formatPoints(atStake)} pts`}
-          hint={`${active.length} live market${active.length === 1 ? "" : "s"}`}
+          hint={`${active.length} live market${active.length === 1 ? "" : "s"}, all leagues`}
         />
         <StatCard
           label="If everything hits"
@@ -66,11 +72,14 @@ export default async function PortfolioPage() {
             {active.map((stake) => (
               <Link
                 key={stake.marketId}
-                href={`/markets/${stake.marketId}`}
+                href={marketPath(stake.league, stake.marketId) as Route}
                 className="flex items-center gap-4 p-4 transition-colors hover:bg-surface-2"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold">{stake.title}</p>
+                  <p className="flex items-center gap-2 text-sm font-semibold">
+                    <span className="truncate">{stake.title}</span>
+                    <LeagueChip league={stake.league} />
+                  </p>
                   <p className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted tabular-nums">
                     {stake.positions.map((position) => (
                       <span key={position.outcomeId} className="inline-flex items-center gap-1.5">
@@ -121,11 +130,14 @@ export default async function PortfolioPage() {
             {resolved.map((stake) => (
               <Link
                 key={stake.marketId}
-                href={`/markets/${stake.marketId}`}
+                href={marketPath(stake.league, stake.marketId) as Route}
                 className="flex items-center gap-4 p-4 transition-colors hover:bg-surface-2"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold">{stake.title}</p>
+                  <p className="flex items-center gap-2 text-sm font-semibold">
+                    <span className="truncate">{stake.title}</span>
+                    <LeagueChip league={stake.league} />
+                  </p>
                   <p className="mt-0.5 text-xs text-muted">
                     {stake.resolvedAt ? <LocalTime date={stake.resolvedAt} /> : ""} · staked{" "}
                     {formatPoints(stake.staked)} pts
