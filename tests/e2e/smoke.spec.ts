@@ -69,10 +69,12 @@ test("leaderboard page loads after sign-in", async ({ page }) => {
 });
 
 test("signup lands in the approval queue and cannot log in until approved", async ({ page }) => {
-  const email = `newbie-${Date.now()}@prollymarket.local`;
+  const stamp = Date.now();
+  const email = `newbie-${stamp}@prollymarket.local`;
 
   await page.goto("/sign-up");
   await page.getByLabel("Display name").fill("Smoke Newbie");
+  await page.getByLabel("Username").fill(`newbie-${stamp}`.slice(0, 20));
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Create account" }).click();
@@ -98,4 +100,27 @@ test("signup lands in the approval queue and cannot log in until approved", asyn
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.waitForURL(/dashboard/);
   await expect(page).toHaveURL(/dashboard/);
+});
+
+test("profiles are reachable from the leaderboard and editable from the account page", async ({ page }) => {
+  await signIn(page, memberEmail);
+
+  // leaderboard names link to profiles
+  await page.goto("/leaderboard");
+  await page.getByRole("link", { name: /League Admin/ }).first().click();
+  await page.waitForURL(/\/u\/league-admin/);
+  await expect(page.getByText("@league-admin")).toBeVisible();
+  await expect(page.getByText(/Trophy case/i)).toBeVisible();
+  await expect(page.getByText(/No trophies yet/i)).toBeVisible();
+
+  // own profile via the account page, and the bio round-trips
+  const bio = `Smoke bio ${Date.now()}`;
+  await page.goto("/account");
+  await page.getByLabel("Bio").fill(bio);
+  await page.getByRole("button", { name: "Save" }).last().click();
+  await expect(page.getByText(/Bio updated/i)).toBeVisible();
+  await page.getByRole("link", { name: /View your profile/i }).click();
+  await page.waitForURL(/\/u\/alex/);
+  await expect(page.getByText("@alex")).toBeVisible();
+  await expect(page.getByText(bio)).toBeVisible();
 });

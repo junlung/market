@@ -59,7 +59,11 @@ export async function TopNav() {
 
         <ThemeToggle />
 
-        <UserMenu name={session.user.name ?? "Player"} isAdmin={session.user.role === "ADMIN"} />
+        <UserMenu
+          name={session.user.name ?? "Player"}
+          username={session.user.username}
+          isAdmin={session.user.role === "ADMIN"}
+        />
       </div>
     </header>
   );

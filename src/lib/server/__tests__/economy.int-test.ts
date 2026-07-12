@@ -24,6 +24,7 @@ async function createUser(balance: number, role: UserRole = UserRole.MEMBER) {
     data: {
       email: `it-user-${Date.now()}-${counter}@test.local`,
       name: `ItUser${counter}`,
+      username: `it-user-${Date.now()}-${counter}`,
       passwordHash: "not-a-real-hash",
       role,
       status: UserStatus.ACTIVE,
@@ -337,6 +338,7 @@ describe.skipIf(!enabled)("economy integration", () => {
       data: {
         email: `applicant-${Date.now()}@test.local`,
         name: "Applicant",
+        username: `applicant-${Date.now()}`,
         passwordHash: "not-a-real-hash",
         status: UserStatus.PENDING,
       },

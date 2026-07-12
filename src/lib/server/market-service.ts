@@ -737,16 +737,16 @@ export async function getMarketDetail(marketId: string, userId: string) {
     include: {
       outcomes: { orderBy: { sortOrder: "asc" } },
       poolStakes: {
-        include: { user: { select: { name: true } } },
+        include: { user: { select: { name: true, username: true } } },
         orderBy: { updatedAt: "desc" },
       },
       bets: {
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        include: { user: { select: { name: true } } },
+        include: { user: { select: { name: true, username: true } } },
       },
       comments: {
         orderBy: { createdAt: "desc" },
-        include: { user: { select: { name: true } } },
+        include: { user: { select: { name: true, username: true } } },
       },
       ledgerEntries: {
         where: {
@@ -780,6 +780,7 @@ export async function getMarketDetail(marketId: string, userId: string) {
     .map((bet) => ({
       id: bet.id,
       userName: bet.user.name,
+      userUsername: bet.user.username,
       outcomeLabel: outcomeDisplayLabel(outcomeById.get(bet.outcomeId) ?? { label: "?" }),
       outcomeColor: outcomeById.get(bet.outcomeId)?.color ?? "blue",
       amount: bet.amount,
@@ -797,7 +798,7 @@ export async function getMarketDetail(marketId: string, userId: string) {
 
   const byUser = new Map<
     string,
-    { userId: string; name: string; stakes: Map<string, number>; staked: number }
+    { userId: string; name: string; username: string; stakes: Map<string, number>; staked: number }
   >();
   for (const stake of market.poolStakes) {
     if (stake.amount === 0) {
@@ -806,6 +807,7 @@ export async function getMarketDetail(marketId: string, userId: string) {
     const row = byUser.get(stake.userId) ?? {
       userId: stake.userId,
       name: stake.user.name,
+      username: stake.user.username,
       stakes: new Map<string, number>(),
       staked: 0,
     };
@@ -828,6 +830,7 @@ export async function getMarketDetail(marketId: string, userId: string) {
       return {
         userId: row.userId,
         name: row.name,
+        username: row.username,
         stakes: odds.outcomes.map((outcome) => ({
           outcomeId: outcome.id,
           amount: row.stakes.get(outcome.id) ?? 0,
@@ -881,6 +884,7 @@ export async function getMarketDetail(marketId: string, userId: string) {
       id: comment.id,
       body: comment.body,
       userName: comment.user.name,
+      userUsername: comment.user.username,
       userId: comment.userId,
       createdAt: comment.createdAt,
     })),
@@ -1020,7 +1024,7 @@ export async function getActivityFeed(limit = 30) {
     take: limit,
     orderBy: { createdAt: "desc" },
     include: {
-      user: { select: { name: true } },
+      user: { select: { name: true, username: true } },
       market: { select: { id: true, title: true } },
       outcome: { select: { label: true, color: true, emoji: true } },
     },
@@ -1029,6 +1033,7 @@ export async function getActivityFeed(limit = 30) {
   return bets.map((bet) => ({
     id: bet.id,
     userName: bet.user.name,
+    userUsername: bet.user.username,
     outcomeLabel: outcomeDisplayLabel(bet.outcome),
     outcomeColor: bet.outcome.color,
     amount: bet.amount,
@@ -1044,7 +1049,7 @@ export async function getLeaderboard() {
   // pending/rejected applicants (who can't hold points) are excluded
   const users = await prisma.user.findMany({
     where: { status: UserStatus.ACTIVE },
-    select: { id: true, name: true },
+    select: { id: true, name: true, username: true },
   });
 
   const ledgerSums = await prisma.ledgerEntry.groupBy({
@@ -1085,6 +1090,7 @@ export async function getLeaderboard() {
     return {
       userId: user.id,
       name: user.name,
+      username: user.username,
       balance,
       atRisk,
       portfolioValue: balance + atRisk,

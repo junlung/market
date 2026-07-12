@@ -1,6 +1,8 @@
 # Social Features Plan
 
-**Status: Phase 1 in progress** (branch `social-update`). This is a living document — update the
+**Status: Phase 1 implemented on `social-update`** (2026-07-12; verified locally — unit,
+integration, and e2e suites green. Prod rollout = merge + deploy; the migration backfills
+usernames automatically). Phase 2 is next. This is a living document — update the
 phase checklists and the decisions log as work lands. Decisions below were made with Jon on
 2026-07-12; don't silently reverse them, add a dated amendment instead.
 
@@ -79,28 +81,27 @@ write into. Nothing here gets thrown away later.
 
 ### Work items
 
-- [ ] Schema + migration + username backfill
-- [ ] Validation: `usernameSchema` (slug rules + reserved words: existing route prefixes like
-      `admin`, `markets`, `account`…), `bioSchema`
-- [ ] `member-service`: `updateUsername` / `updateBio`; signup collects username
-      (`src/app/actions/signup.ts`); JWT carries username (mirror the display-name `update`
-      trigger in `src/lib/auth.ts`)
-- [ ] `src/lib/server/profile-service.ts`: profile lookup by username + career stats from the
-      ledger (net profit, markets won/played, win rate, biggest payout, member-since) + recent
-      resolved positions. Reuse/extract the `getLeaderboard` math; no denormalized stats table
-      until it's actually slow.
-- [ ] `src/lib/server/item-service.ts`: `grantItem`, `listUserItems` (equip comes in Phase 3)
-- [ ] `/u/[username]` page in `(app)`: identity header (avatar, display name, @username, bio,
-      member-since), stat cards, trophy case (empty state: "No trophies yet"), recent resolved
-      positions. Add `/u/:path*` to the middleware matcher. `typedRoutes` is on — new routes need
-      a build to regenerate types.
-- [ ] Account page: username + bio forms next to the display-name form
-      (`src/components/members/display-name-form.tsx` is the pattern — imperative action call,
-      not `useActionState`; see the comment there for why), link to "View your profile"
-- [ ] Link-up pass: every avatar/name in leaderboard, comments, activity feed, and market
-      position tables links to the profile — this is what makes profiles feel alive
-- [ ] Tests: unit (slug gen/collision, stats math), integration (profile + item services),
-      e2e smoke visit
+- [x] Schema + migration + username backfill
+      (`prisma/migrations/20260712000000_social_profiles_items`)
+- [x] Validation: `usernameValueSchema` (slug rules + reserved words in `src/lib/username.ts`),
+      `bioSchema`
+- [x] `member-service`: `updateUsername` / `updateBio` / `getSelfProfile`; signup collects
+      username; JWT carries username with a lazy DB backfill for pre-existing tokens
+      (`src/lib/auth.ts`)
+- [x] `src/lib/server/profile-service.ts`: profile lookup by username + career stats from the
+      ledger (net profit, markets won/played, win rate, biggest payout) + recent resolved
+      positions. Computed on request; no denormalized stats table until it's actually slow.
+- [x] `src/lib/server/item-service.ts`: `grantItem` (idempotent via unique `grantKey` — season
+      cron re-runs can't double-grant), `listUserItems` (equip comes in Phase 3)
+- [x] `/u/[username]` page in `(app)`: identity header, stat cards, trophy case
+      (`src/components/members/trophy-case.tsx`), recent results; `/u/:path*` added to the
+      middleware matcher
+- [x] Account page: username + bio forms next to the display-name form, "View your profile" link
+- [x] Link-up pass via `src/components/members/profile-link.tsx`: leaderboard (podium + table),
+      comments, activity feed, market positions, and a "Your profile" user-menu item
+- [x] Tests: unit (username rules + slug suggestion), integration (career stats from a real
+      settlement, at-risk handling, grantKey idempotency), e2e (leaderboard → profile,
+      bio round-trip)
 
 Deliberately deferred: equip UI, the store, image uploads, unauthenticated access.
 

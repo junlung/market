@@ -18,6 +18,21 @@ export function SignUpForm() {
         <Input id="name" name="name" type="text" placeholder="Taylor" required />
       </div>
       <div>
+        <Label htmlFor="username">Username</Label>
+        <Input
+          id="username"
+          name="username"
+          type="text"
+          placeholder="taylor"
+          minLength={3}
+          maxLength={20}
+          pattern="[a-z0-9][a-z0-9\-]*[a-z0-9]"
+          title="Lowercase letters, numbers, and hyphens"
+          required
+        />
+        <p className="mt-1 text-[11px] text-faint">Your profile handle — lowercase letters, numbers, and hyphens.</p>
+      </div>
+      <div>
         <Label htmlFor="email">Email</Label>
         <Input id="email" name="email" type="email" placeholder="you@example.com" required />
       </div>

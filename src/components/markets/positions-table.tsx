@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import { ProfileLink } from "@/components/members/profile-link";
 import { Avatar } from "@/components/ui/avatar";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { OutcomeDot } from "@/components/markets/outcome-dot";
@@ -15,6 +16,7 @@ export type PositionOutcome = {
 export type PositionRow = {
   userId: string;
   name: string;
+  username: string;
   stakes: Array<{ outcomeId: string; amount: number }>;
   staked: number;
   potShare: number;
@@ -62,8 +64,10 @@ export function PositionsTable({
             <tr key={row.userId} className={clsx(row.userId === viewerId && "bg-primary/5")}>
               <td className="py-2.5 pr-3">
                 <span className="flex items-center gap-2 font-medium">
-                  <Avatar name={row.name} size="xs" />
-                  {row.name}
+                  <ProfileLink username={row.username} className="flex items-center gap-2">
+                    <Avatar name={row.name} size="xs" />
+                    {row.name}
+                  </ProfileLink>
                   {row.userId === viewerId ? <span className="text-xs text-faint">(you)</span> : null}
                 </span>
               </td>

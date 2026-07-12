@@ -3,9 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { requireAdminSession, requireSession } from "@/lib/session";
 import { ensureWeeklyAllowance } from "@/lib/server/allowance-service";
-import { approveUser, rejectUser, updateDisplayName, vouchForUser } from "@/lib/server/member-service";
+import { approveUser, rejectUser, updateBio, updateDisplayName, updateUsername, vouchForUser } from "@/lib/server/member-service";
 import type { ActionResult } from "@/lib/server/market-service";
-import { displayNameSchema, rejectUserSchema, reviewUserSchema, vouchSchema } from "@/lib/validation";
+import { bioSchema, displayNameSchema, rejectUserSchema, reviewUserSchema, usernameSchema, vouchSchema } from "@/lib/validation";
 
 function revalidateMemberViews() {
   revalidatePath("/invite");
@@ -31,6 +31,46 @@ export async function updateDisplayNameAction(
     return { success: "Name updated." };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Failed to update name." };
+  }
+}
+
+export async function updateUsernameAction(
+  _: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const session = await requireSession();
+  const parsed = usernameSchema.safeParse({ username: formData.get("username") });
+
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid username." };
+  }
+
+  try {
+    await updateUsername(session.user.id, parsed.data.username);
+    // old profile links (/u/old-handle) 404 after this — revalidate broadly,
+    // same as display-name renames
+    revalidatePath("/", "layout");
+    return { success: "Username updated." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to update username." };
+  }
+}
+
+export async function updateBioAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
+  const session = await requireSession();
+  const parsed = bioSchema.safeParse({ bio: formData.get("bio") ?? "" });
+
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid bio." };
+  }
+
+  try {
+    await updateBio(session.user.id, parsed.data.bio);
+    revalidatePath("/account");
+    revalidatePath("/u", "layout");
+    return { success: "Bio updated." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to update bio." };
   }
 }
 

@@ -65,10 +65,38 @@ enum UserStatus {
   REJECTED
 }
 
+// Cosmetic/trophy inventory (see docs/social-features-plan.md). TROPHY is
+// display-only; the other kinds map 1:1 onto EquipSlot values.
+enum ItemKind {
+  TROPHY
+  BADGE
+  TITLE
+  FRAME
+  BACKGROUND
+}
+
+enum ItemSource {
+  SEASON_TROPHY
+  ACHIEVEMENT
+  PURCHASE
+  ADMIN_GRANT
+}
+
+enum EquipSlot {
+  BADGE
+  TITLE
+  FRAME
+  BACKGROUND
+}
+
 model User {
   id           String     @id @default(cuid())
   email        String     @unique
   name         String
+  // stable lowercase handle for profile URLs (/u/[username]) — display names
+  // stay mutable and non-unique; migration backfilled this from `name`
+  username     String     @unique
+  bio          String?
   passwordHash String
   role         UserRole   @default(MEMBER)
   status       UserStatus @default(PENDING)
@@ -91,8 +119,52 @@ model User {
   ledgerEntries LedgerEntry[]
   comments      Comment[]
   appLogs       AppLog[]
+  items         UserItem[]
 
   @@index([status, createdAt])
+}
+
+// A cosmetic/trophy definition. `style` holds kind-specific rendering params
+// (emoji, colors, CSS tokens) — items are drawn, never uploaded, so there is
+// no image storage. storeCost null = not purchasable (trophies never are).
+model Item {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String
+  kind        ItemKind
+  style       Json?
+  storeCost   Int?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  userItems UserItem[]
+}
+
+// One granted instance of an Item in a user's inventory. Duplicates of the
+// same Item are allowed when provenance differs (e.g. the same championship
+// trophy won in two different seasons).
+model UserItem {
+  id     String     @id @default(cuid())
+  userId String
+  itemId String
+  source ItemSource
+  // e.g. { "league": "Global League", "seasonId": "...", "placement": 1 }
+  provenance Json?
+  // idempotency key for automated grants (season finalization, achievements)
+  // — same pattern as LedgerEntry [userId, allowanceWeek]. Null for manual
+  // grants and purchases.
+  grantKey String? @unique
+  // at most one equipped item per slot, enforced in the equip transaction
+  // (Prisma can't express a partial unique index)
+  equippedSlot EquipSlot?
+  grantedAt    DateTime   @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([userId, grantedAt])
+  @@index([itemId])
 }
 
 model Market {

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import clsx from "clsx";
+import { ProfileLink } from "@/components/members/profile-link";
 import { Avatar } from "@/components/ui/avatar";
 import { formatChance, formatPoints, formatRelativeTime } from "@/lib/format";
 import { outcomeColorVar } from "@/lib/outcome-colors";
@@ -7,6 +8,7 @@ import { outcomeColorVar } from "@/lib/outcome-colors";
 export type ActivityItem = {
   id: string;
   userName: string;
+  userUsername: string;
   outcomeLabel: string;
   outcomeColor: string;
   amount: number;
@@ -19,10 +21,14 @@ export type ActivityItem = {
 export function ActivityRow({ item }: { item: ActivityItem }) {
   return (
     <div className="flex items-center gap-3 py-2.5">
-      <Avatar name={item.userName} size="sm" />
+      <ProfileLink username={item.userUsername} className="shrink-0">
+        <Avatar name={item.userName} size="sm" />
+      </ProfileLink>
       <div className="min-w-0 flex-1 text-sm">
         <p className="truncate">
-          <span className="font-semibold">{item.userName}</span>{" "}
+          <ProfileLink username={item.userUsername} className="font-semibold">
+            {item.userName}
+          </ProfileLink>{" "}
           <span className="text-muted">bet</span>{" "}
           <span className="font-semibold tabular-nums">{formatPoints(item.amount)} pts</span>{" "}
           <span className="text-muted">on</span>{" "}

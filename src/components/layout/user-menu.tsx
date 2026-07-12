@@ -3,10 +3,18 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
-import { History, LogOut, PlusCircle, Shield, User, UserPlus } from "lucide-react";
+import { CircleUserRound, History, LogOut, PlusCircle, Shield, User, UserPlus } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 
-export function UserMenu({ name, isAdmin }: { name: string; isAdmin: boolean }) {
+export function UserMenu({
+  name,
+  username,
+  isAdmin,
+}: {
+  name: string;
+  username: string;
+  isAdmin: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -40,6 +48,9 @@ export function UserMenu({ name, isAdmin }: { name: string; isAdmin: boolean }) 
           className="absolute right-0 top-11 z-50 w-52 rounded-xl border border-border bg-surface p-1.5 shadow-lg"
         >
           <p className="px-3 py-2 text-xs font-medium text-faint">{name}</p>
+          <Link href={`/u/${username}`} className={itemClass} onClick={() => setOpen(false)}>
+            <CircleUserRound className="size-4" /> Your profile
+          </Link>
           <Link href="/account" className={itemClass} onClick={() => setOpen(false)}>
             <User className="size-4" /> Account
           </Link>

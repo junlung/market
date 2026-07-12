@@ -6,9 +6,11 @@ import { z } from "zod";
 import { hashPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { usernameValueSchema } from "@/lib/validation";
 
 const signUpSchema = z.object({
   name: z.string().min(2).max(80),
+  username: usernameValueSchema,
   email: z.string().email(),
   password: z.string().min(8).max(72),
 });
@@ -25,12 +27,15 @@ export type SignUpFormState = {
 export async function registerWithInvite(_: SignUpFormState, formData: FormData): Promise<SignUpFormState> {
   const parsed = signUpSchema.safeParse({
     name: formData.get("name"),
+    username: formData.get("username"),
     email: formData.get("email"),
     password: formData.get("password"),
   });
 
   if (!parsed.success) {
-    return { error: "Complete all fields with valid values." };
+    // username has real rules worth surfacing; everything else is generic
+    const usernameIssue = parsed.error.issues.find((issue) => issue.path[0] === "username");
+    return { error: usernameIssue?.message ?? "Complete all fields with valid values." };
   }
 
   const email = parsed.data.email.toLowerCase();
@@ -50,32 +55,51 @@ export async function registerWithInvite(_: SignUpFormState, formData: FormData)
     return { error: "An account with that email already exists." };
   }
 
+  const usernameTaken = await prisma.user.findFirst({
+    where: { username: parsed.data.username, id: { not: existingUser?.id } },
+    select: { id: true },
+  });
+
+  if (usernameTaken) {
+    return { error: "That username is already taken." };
+  }
+
   const passwordHash = await hashPassword(parsed.data.password);
 
-  if (existingUser) {
-    // a rejected email may re-apply: reset the account to a fresh PENDING
-    // application (the old review is preserved in the admin audit log)
-    await prisma.user.update({
-      where: { id: existingUser.id },
-      data: {
-        name: parsed.data.name,
-        passwordHash,
-        status: UserStatus.PENDING,
-        reviewedById: null,
-        reviewedAt: null,
-        reviewNote: null,
-        vouchedById: null,
-        vouchNote: null,
-      },
-    });
-  } else {
-    await prisma.user.create({
-      data: {
-        email,
-        name: parsed.data.name,
-        passwordHash,
-      },
-    });
+  try {
+    if (existingUser) {
+      // a rejected email may re-apply: reset the account to a fresh PENDING
+      // application (the old review is preserved in the admin audit log)
+      await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          name: parsed.data.name,
+          username: parsed.data.username,
+          passwordHash,
+          status: UserStatus.PENDING,
+          reviewedById: null,
+          reviewedAt: null,
+          reviewNote: null,
+          vouchedById: null,
+          vouchNote: null,
+        },
+      });
+    } else {
+      await prisma.user.create({
+        data: {
+          email,
+          name: parsed.data.name,
+          username: parsed.data.username,
+          passwordHash,
+        },
+      });
+    }
+  } catch (error) {
+    // unique-violation race between the pre-check and the write
+    if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
+      return { error: "That username is already taken." };
+    }
+    throw error;
   }
 
   redirect("/sign-in?pending=1");

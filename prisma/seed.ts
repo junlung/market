@@ -23,11 +23,11 @@ function daysFromNow(days: number) {
 async function seedUsers(defaultPassword: string) {
   const passwordHash = await hash(defaultPassword, 12);
   const users = [
-    { email: "admin@prollymarket.local", name: "League Admin", role: UserRole.ADMIN },
-    { email: "alex@prollymarket.local", name: "Alex", role: UserRole.MEMBER },
-    { email: "blair@prollymarket.local", name: "Blair", role: UserRole.MEMBER },
-    { email: "casey@prollymarket.local", name: "Casey", role: UserRole.MEMBER },
-    { email: "dana@prollymarket.local", name: "Dana", role: UserRole.MEMBER },
+    { email: "admin@prollymarket.local", name: "League Admin", username: "league-admin", role: UserRole.ADMIN },
+    { email: "alex@prollymarket.local", name: "Alex", username: "alex", role: UserRole.MEMBER },
+    { email: "blair@prollymarket.local", name: "Blair", username: "blair", role: UserRole.MEMBER },
+    { email: "casey@prollymarket.local", name: "Casey", username: "casey", role: UserRole.MEMBER },
+    { email: "dana@prollymarket.local", name: "Dana", username: "dana", role: UserRole.MEMBER },
   ];
 
   for (const user of users) {
@@ -37,6 +37,7 @@ async function seedUsers(defaultPassword: string) {
       create: {
         email: user.email,
         name: user.name,
+        username: user.username,
         role: user.role,
         passwordHash,
         status: UserStatus.ACTIVE,
@@ -93,6 +94,7 @@ async function seedUsers(defaultPassword: string) {
     create: {
       email: "dave@prollymarket.local",
       name: "Dave",
+      username: "dave",
       passwordHash,
       status: UserStatus.PENDING,
       vouchedById: casey.id,

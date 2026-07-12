@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { appConfig } from "@/lib/config";
 import { graphemeCount } from "@/lib/outcome-colors";
+import { RESERVED_USERNAMES, USERNAME_MAX, USERNAME_MIN, USERNAME_PATTERN } from "@/lib/username";
 
 const localDateTimeSchema = z
   .string()
@@ -107,6 +108,24 @@ export const commentSchema = z.object({
 
 export const deleteCommentSchema = z.object({
   commentId: z.string().cuid(),
+});
+
+export const usernameValueSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(USERNAME_MIN, `Username needs at least ${USERNAME_MIN} characters.`)
+  .max(USERNAME_MAX, `Username maxes out at ${USERNAME_MAX} characters.`)
+  .regex(USERNAME_PATTERN, "Lowercase letters, numbers, and hyphens only — no leading or trailing hyphen.")
+  .refine((value) => !RESERVED_USERNAMES.has(value), "That username is reserved.");
+
+export const usernameSchema = z.object({
+  username: usernameValueSchema,
+});
+
+// empty clears the bio
+export const bioSchema = z.object({
+  bio: z.string().trim().max(280, "Bio maxes out at 280 characters."),
 });
 
 export const displayNameSchema = z.object({

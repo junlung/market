@@ -107,6 +107,54 @@ export async function updateDisplayName(userId: string, name: string) {
   return updated;
 }
 
+/** The signed-in member's own editable profile fields (account page). */
+export async function getSelfProfile(userId: string) {
+  return prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { id: true, name: true, username: true, bio: true, email: true, role: true, createdAt: true },
+  });
+}
+
+/**
+ * Self-service username (profile handle) change. Uniqueness is schema-level;
+ * the pre-check just gives a friendlier error than a P2002 in the common case.
+ */
+export async function updateUsername(userId: string, username: string) {
+  const taken = await prisma.user.findFirst({
+    where: { id: { not: userId }, username },
+    select: { id: true },
+  });
+
+  if (taken) {
+    throw new Error("That username is already taken.");
+  }
+
+  const before = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { username: true },
+  });
+
+  try {
+    const updated = await prisma.user.update({ where: { id: userId }, data: { username } });
+    await logMembershipAction(`Changed username: @${before.username} → @${username}`, userId);
+    return updated;
+  } catch (error) {
+    // unique-violation race between the pre-check and the update
+    if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
+      throw new Error("That username is already taken.");
+    }
+    throw error;
+  }
+}
+
+/** Self-service profile bio. Empty clears it. */
+export async function updateBio(userId: string, bio: string) {
+  return prisma.user.update({
+    where: { id: userId },
+    data: { bio: bio.length > 0 ? bio : null },
+  });
+}
+
 /** A member vouching for someone in the queue — shown to admins on review. */
 export async function vouchForUser(userId: string, voucherId: string, note?: string) {
   if (userId === voucherId) {

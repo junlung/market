@@ -58,6 +58,7 @@ export const authOptions: NextAuthOptions = {
           id: user.id,
           email: user.email,
           name: user.name,
+          username: user.username,
           role: user.role,
         };
       },
@@ -67,12 +68,25 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user, trigger, session }) {
       if (user) {
         token.role = user.role;
+        token.username = user.username;
       }
 
       // client-side useSession().update({ name }) after a rename — the JWT
       // otherwise keeps the sign-in-time name until the next login
       if (trigger === "update" && typeof session?.name === "string") {
         token.name = session.name;
+      }
+      if (trigger === "update" && typeof session?.username === "string") {
+        token.username = session.username;
+      }
+
+      // tokens issued before usernames existed — backfill once from the DB
+      if (!token.username && token.sub) {
+        const dbUser = await prisma.user.findUnique({
+          where: { id: token.sub },
+          select: { username: true },
+        });
+        token.username = dbUser?.username;
       }
 
       return token;
@@ -81,6 +95,7 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         session.user.id = token.sub ?? "";
         session.user.role = token.role as "ADMIN" | "MEMBER";
+        session.user.username = token.username ?? "";
       }
 
       return session;

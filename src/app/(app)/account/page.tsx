@@ -1,14 +1,18 @@
+import Link from "next/link";
 import { LocalTime } from "@/components/ui/local-time";
-import { Gift } from "lucide-react";
+import { ExternalLink, Gift } from "lucide-react";
 import clsx from "clsx";
 import { Avatar } from "@/components/ui/avatar";
+import { BioForm } from "@/components/members/bio-form";
 import { DisplayNameForm } from "@/components/members/display-name-form";
+import { UsernameForm } from "@/components/members/username-form";
 import { PageHeader } from "@/components/ui/page-header";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { appConfig } from "@/lib/config";
 import { formatPoints, formatRelativeTime, formatSignedPoints } from "@/lib/format";
 import { getNextIsoWeekStart } from "@/lib/allowance";
 import { hasCurrentWeekAllowance } from "@/lib/server/allowance-service";
+import { getSelfProfile } from "@/lib/server/member-service";
 import { getBalanceBreakdown, getLedgerEntries } from "@/lib/server/market-service";
 import { requireSession } from "@/lib/session";
 
@@ -22,7 +26,8 @@ const TYPE_LABELS: Record<string, string> = {
 
 export default async function AccountPage() {
   const session = await requireSession();
-  const [breakdown, entries, allowanceLanded] = await Promise.all([
+  const [profile, breakdown, entries, allowanceLanded] = await Promise.all([
+    getSelfProfile(session.user.id),
     getBalanceBreakdown(session.user.id),
     getLedgerEntries(session.user.id),
     hasCurrentWeekAllowance(session.user.id),
@@ -43,11 +48,19 @@ export default async function AccountPage() {
       <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
         <div className="space-y-4">
           <div className="flex flex-col items-center rounded-xl border border-border bg-surface p-5 text-center">
-            <Avatar name={session.user.name ?? "Player"} size="lg" />
-            <p className="text-xs text-muted mt-2">{session.user.email}</p>
-            <p className="mt-1 text-xs text-faint">{session.user.role.toLowerCase()}</p>
-            <div className="mt-3 w-full border-t border-border pt-3">
-              <DisplayNameForm currentName={session.user.name ?? ""} />
+            <Avatar name={profile.name} size="lg" />
+            <p className="text-xs text-muted mt-2">{profile.email}</p>
+            <p className="mt-1 text-xs text-faint">{profile.role.toLowerCase()}</p>
+            <Link
+              href={`/u/${profile.username}`}
+              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:text-primary-hover"
+            >
+              View your profile <ExternalLink className="size-3" aria-hidden />
+            </Link>
+            <div className="mt-3 w-full space-y-4 border-t border-border pt-3">
+              <DisplayNameForm currentName={profile.name} />
+              <UsernameForm currentUsername={profile.username} />
+              <BioForm currentBio={profile.bio ?? ""} />
             </div>
             <div className="mt-3 flex items-center gap-2 text-xs text-muted">
               Theme <ThemeToggle />

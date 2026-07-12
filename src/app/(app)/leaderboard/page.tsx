@@ -1,5 +1,6 @@
 import clsx from "clsx";
 import { Crown } from "lucide-react";
+import { ProfileLink } from "@/components/members/profile-link";
 import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -48,13 +49,15 @@ export default async function LeaderboardPage() {
                 )}
               >
                 <span className="text-2xl">{MEDALS[entry.rank - 1] ?? MEDALS[index]}</span>
-                <Avatar name={entry.name} size="lg" className="mt-2" />
-                <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold">
-                  {entry.name}
-                  {entry.userId === session.user.id ? (
-                    <span className="text-xs font-normal text-faint">(you)</span>
-                  ) : null}
-                </p>
+                <ProfileLink username={entry.username} className="flex flex-col items-center">
+                  <Avatar name={entry.name} size="lg" className="mt-2" />
+                  <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold">
+                    {entry.name}
+                    {entry.userId === session.user.id ? (
+                      <span className="text-xs font-normal text-faint">(you)</span>
+                    ) : null}
+                  </p>
+                </ProfileLink>
                 <p
                   className={clsx(
                     "mt-1 text-xl font-bold tabular-nums",
@@ -102,8 +105,10 @@ export default async function LeaderboardPage() {
                       </td>
                       <td className="px-4 py-2.5">
                         <span className="flex items-center gap-2 font-medium">
-                          <Avatar name={entry.name} size="xs" />
-                          {entry.name}
+                          <ProfileLink username={entry.username} className="flex items-center gap-2">
+                            <Avatar name={entry.name} size="xs" />
+                            {entry.name}
+                          </ProfileLink>
                           {entry.userId === session.user.id ? (
                             <span className="text-xs text-faint">(you)</span>
                           ) : null}

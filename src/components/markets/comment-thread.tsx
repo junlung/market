@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useOptimistic, useRef, startTransition } from "react";
 import { createCommentAction } from "@/app/actions/comments";
 import type { ActionResult } from "@/lib/server/market-service";
+import { ProfileLink } from "@/components/members/profile-link";
 import { Avatar } from "@/components/ui/avatar";
 import { formatRelativeTime } from "@/lib/format";
 
@@ -10,6 +11,7 @@ export type CommentItem = {
   id: string;
   body: string;
   userName: string;
+  userUsername: string;
   userId: string;
   createdAt: Date | string;
   pending?: boolean;
@@ -19,10 +21,12 @@ export function CommentThread({
   marketId,
   comments,
   viewerName,
+  viewerUsername,
 }: {
   marketId: string;
   comments: CommentItem[];
   viewerName: string;
+  viewerUsername: string;
 }) {
   const [optimisticComments, addOptimistic] = useOptimistic(
     comments,
@@ -31,6 +35,7 @@ export function CommentThread({
         id: `optimistic-${Date.now()}`,
         body,
         userName: viewerName,
+        userUsername: viewerUsername,
         userId: "viewer",
         createdAt: new Date(),
         pending: true,
@@ -92,10 +97,14 @@ export function CommentThread({
           optimisticComments.map((comment) => (
             <div key={comment.id} className={comment.pending ? "opacity-60" : undefined}>
               <div className="flex items-start gap-2.5 py-3">
-                <Avatar name={comment.userName} size="sm" className="mt-0.5" />
+                <ProfileLink username={comment.userUsername} className="mt-0.5 shrink-0">
+                  <Avatar name={comment.userName} size="sm" />
+                </ProfileLink>
                 <div className="min-w-0 flex-1">
                   <p className="text-xs">
-                    <span className="font-semibold text-foreground">{comment.userName}</span>{" "}
+                    <ProfileLink username={comment.userUsername} className="font-semibold text-foreground">
+                      {comment.userName}
+                    </ProfileLink>{" "}
                     <span className="text-faint">{formatRelativeTime(comment.createdAt)}</span>
                   </p>
                   <p className="mt-0.5 whitespace-pre-wrap break-words text-sm">{comment.body}</p>

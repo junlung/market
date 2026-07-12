@@ -212,6 +212,7 @@ export default async function MarketDetailPage({ params, searchParams }: Props) 
                 marketId={market.id}
                 comments={market.comments}
                 viewerName={session.user.name ?? "You"}
+                viewerUsername={session.user.username}
               />
             ),
             positions: (
