@@ -153,6 +153,7 @@ zero new permission surface; **2b** adds user-created leagues.
 - League discovery: browse/join public leagues, or invite-only always? A: Always invite-only
 - Navigation: league switcher in the top nav vs. league-scoped routes (`/l/[slug]/...`).
   Leaning route-scoped — it matches the app's server-component style and makes links shareable.
+  A: Route-scoped for custom leagues; Global keeps its routes (see 2b kickoff decisions).
 
 ### Phase 2a — shipped (2026-07-12, branch `leagues`)
 
@@ -200,6 +201,37 @@ Amendments / small decisions made while building (2026-07-12):
   recomputed from the ledger).
 - **Balance reads stay league-unscoped in 2a** — all data belongs to the one league, so
   scoping reads is observable-noop plumbing; it lands with 2b when a second economy exists.
+
+### Phase 2b — kickoff decisions (2026-07-12, with Jon)
+
+| # | Decision | Choice |
+|---|----------|--------|
+| 1 | Navigation | **Custom leagues at `/l/[slug]/...`** (markets, leaderboard, members, settings); the Global League keeps `/dashboard`, `/markets`, `/leaderboard` etc. unchanged — zero URL churn, no redirects. A "My leagues" nav menu lists your custom leagues. |
+| 2 | League settings | **Four typed columns**, set at creation, editable until the first season starts: `startingStack`, `weeklyAllowance` (0 = off), `defaultRakeBps`, `defaultMaxStakePerUser`. Markets inherit them (no per-market overrides in custom leagues, per the earlier answer). |
+| 3 | Invites | **One rotating join code per league.** Owner/mods regenerate to revoke; no expiry, no per-invite tracking. "Join a league" page takes the code. |
+| 4 | Resolutions | **Instant payout in custom leagues too** — commissioners are trusted, fantasy-style. *Dated amendment to the 2026-07-12 "short dispute window" guardrail: deferred, not built in v1.* Resolutions still land in the league feed with actor + source; the window ships later only if it's actually needed. |
+| 5 | Seasons | **Owner-set start/end dates, manual roll.** The cron finalizes ended custom seasons (freeze standings, grant trophies) but never auto-opens the next; the owner starts the next season explicitly, which grants the fresh stacks (`FRESH_PER_SEASON`). One-shot leagues simply never start another. |
+
+### Phase 2b — work items
+
+- [ ] Schema: League settings columns + `inviteCode` (unique, rotatable); `Market.seasonId` +
+      `LedgerEntry.seasonId` (nullable, set for fresh-stack leagues); league-scoped balance
+      reads (`getUserBalance(userId, leagueId)` and friends)
+- [ ] League CRUD: create league (becomes OWNER), settings page, rotate invite code,
+      join-by-code, member list with roles (OWNER/MOD/MEMBER), leave league
+- [ ] Season lifecycle: owner creates season (date presets: month/week/weekend), fresh-stack
+      grants at season start (idempotent per [userId, seasonId]), "start next season" action;
+      cron finalizes ended custom seasons (no auto-roll)
+- [ ] Market lifecycle scoped to league: members propose, owner/mods approve/open/resolve/cancel
+      (replaces global-admin gating for league ops only); markets pinned to the active season
+- [ ] League-scoped allowance: idempotency key becomes [userId, leagueId, allowanceWeek]
+      (respecting the league's weeklyAllowance setting)
+- [ ] Routes: `/l/[slug]` (overview/feed), `/l/[slug]/markets[/marketId]`,
+      `/l/[slug]/leaderboard`, `/l/[slug]/settings`; middleware matcher + "My leagues" nav
+- [ ] Trophies: reuse the season-trophy items — provenance already carries league/season
+- [ ] Tests: integration (fresh-stack isolation from Global balances, join-code rotation,
+      per-league permissions, custom-season finalization), e2e (create league → invite → bet →
+      resolve → standings)
 
 ---
 
