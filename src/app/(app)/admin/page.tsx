@@ -60,6 +60,9 @@ export default async function AdminPage() {
         <Link href="/admin/members" className={buttonClasses("secondary", "md")}>
           Manage members →
         </Link>
+        <Link href="/admin/items" className={buttonClasses("secondary", "md")}>
+          Items &amp; store →
+        </Link>
       </div>
     </section>
   );

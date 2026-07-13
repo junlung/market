@@ -1,12 +1,14 @@
 import {
   AppLogEventType,
   AppLogLevel,
+  GemLedgerEntryType,
   LedgerEntryType,
   MarketOutcome,
   MarketStatus,
   UserStatus,
 } from "@prisma/client";
 import { appConfig } from "@/lib/config";
+import { checkGemConservation, computeRakeGemSplit } from "@/lib/gems";
 import { buildBalanceBreakdown, reconcileBalanceFromBreakdown, sumLedgerAmounts } from "@/lib/ledger";
 import {
   getMarketOdds,
@@ -25,6 +27,8 @@ import {
   type SettlementResult,
 } from "@/lib/parimutuel";
 import { prisma } from "@/lib/prisma";
+import { evaluateAchievementsForMarket } from "@/lib/server/achievement-service";
+import { getEquippedCosmetics } from "@/lib/server/item-service";
 import { ensureGlobalLeague, getActiveSeason, requireLeagueRole } from "@/lib/server/league-service";
 import { withSerializableRetry } from "@/lib/server/tx";
 import { LeagueRole } from "@prisma/client";
@@ -432,7 +436,10 @@ async function writeSettlement(input: {
   return withSerializableRetry(async (tx) => {
     const market = await tx.market.findUnique({
       where: { id: input.marketId },
-      include: { outcomes: { orderBy: { sortOrder: "asc" } } },
+      include: {
+        outcomes: { orderBy: { sortOrder: "asc" } },
+        league: { select: { isGlobal: true } },
+      },
     });
 
     if (!market) {
@@ -510,6 +517,39 @@ async function writeSettlement(input: {
       });
     }
 
+    // Rake→gems conversion (Phase 3, decision #5): only Global League markets
+    // mint gems — custom-league stacks are owner-set, so converting their rake
+    // would be free gem farming. Refund/cancel paths carry rake = 0 and no-op.
+    // Idempotency: the status guard above prevents settlement re-entry, so the
+    // partial unique on (userId, marketId) WHERE RAKE_CONVERSION is a pure
+    // backstop (tx.ts retries all P2002 — a retried re-run surfaces the status
+    // guard's error instead of double-minting).
+    const gemSplit =
+      result.mode === "NORMAL" && result.rake > 0 && market.league.isGlobal
+        ? computeRakeGemSplit(
+            result.payouts
+              .filter((payout) => payout.kind === "PAYOUT")
+              .map((payout) => ({ userId: payout.userId, winningStake: payout.winningStake })),
+            result.rake,
+          )
+        : null;
+
+    if (gemSplit && !checkGemConservation(gemSplit)) {
+      throw new Error("Gem split failed conservation check.");
+    }
+
+    if (gemSplit && gemSplit.grants.length > 0) {
+      await tx.gemLedgerEntry.createMany({
+        data: gemSplit.grants.map((grant) => ({
+          userId: grant.userId,
+          type: GemLedgerEntryType.RAKE_CONVERSION,
+          amount: grant.gems,
+          marketId: input.marketId,
+          description: `Rake conversion — ${market.title}`,
+        })),
+      });
+    }
+
     // freeze the pools so the settlement audit stays in typed ints
     for (const outcome of market.outcomes) {
       await tx.outcome.update({
@@ -557,6 +597,7 @@ async function writeSettlement(input: {
         rakeAmount: result.rake,
         dustAmount: result.dust,
         totalPaidOut: result.totalOut,
+        gemsMinted: gemSplit ? gemSplit.rake - gemSplit.gemDust : 0,
         createdById: input.adminId,
       },
     });
@@ -594,6 +635,25 @@ export async function resolveMarket(
     dust: result.dust,
     paidOut: result.totalOut,
   });
+
+  // Post-commit achievement pass — deliberately OUTSIDE the settlement tx:
+  // streak/volume checks read each staker's full history, which would balloon
+  // the SERIALIZABLE read set and abort concurrent bets. Grants are idempotent
+  // per (user, achievement), so a crash here is repaired by the daily cron
+  // sweep; a failure must never fail the (already committed) resolution.
+  try {
+    await evaluateAchievementsForMarket(marketId);
+  } catch (error) {
+    await prisma.appLog.create({
+      data: {
+        level: AppLogLevel.WARN,
+        eventType: AppLogEventType.ADMIN_ACTION,
+        message: `Achievement evaluation failed after resolving ${market.title}`,
+        marketId,
+        metadata: { error: error instanceof Error ? error.message : String(error) },
+      },
+    });
+  }
 
   return result;
 }
@@ -845,19 +905,27 @@ export async function getMarketDetail(marketId: string, userId: string) {
     ...market.bets.map((bet, index) => ({ t: bet.createdAt.getTime(), probs: frames[index + 1] })),
   ];
 
-  const activity = [...market.bets]
-    .reverse()
-    .slice(0, 30)
-    .map((bet) => ({
-      id: bet.id,
-      userName: bet.user.name,
-      userUsername: bet.user.username,
-      outcomeLabel: outcomeDisplayLabel(outcomeById.get(bet.outcomeId) ?? { label: "?" }),
-      outcomeColor: outcomeById.get(bet.outcomeId)?.color ?? "blue",
-      amount: bet.amount,
-      probabilityAfter: bet.totalPoolAfter > 0 ? bet.outcomePoolAfter / bet.totalPoolAfter : 0,
-      createdAt: bet.createdAt,
-    }));
+  const recentBets = [...market.bets].reverse().slice(0, 30);
+
+  // one cosmetics batch for every identity this view renders (positions,
+  // comments, recent activity) — the per-page convention from Phase 3
+  const cosmetics = await getEquippedCosmetics([
+    ...market.poolStakes.map((stake) => stake.userId),
+    ...market.comments.map((comment) => comment.userId),
+    ...recentBets.map((bet) => bet.userId),
+  ]);
+
+  const activity = recentBets.map((bet) => ({
+    id: bet.id,
+    userName: bet.user.name,
+    userUsername: bet.user.username,
+    cosmetics: cosmetics.get(bet.userId) ?? null,
+    outcomeLabel: outcomeDisplayLabel(outcomeById.get(bet.outcomeId) ?? { label: "?" }),
+    outcomeColor: outcomeById.get(bet.outcomeId)?.color ?? "blue",
+    amount: bet.amount,
+    probabilityAfter: bet.totalPoolAfter > 0 ? bet.outcomePoolAfter / bet.totalPoolAfter : 0,
+    createdAt: bet.createdAt,
+  }));
 
   const settlementByUser = new Map<string, number>();
   for (const entry of market.ledgerEntries) {
@@ -902,6 +970,7 @@ export async function getMarketDetail(marketId: string, userId: string) {
         userId: row.userId,
         name: row.name,
         username: row.username,
+        cosmetics: cosmetics.get(row.userId) ?? null,
         stakes: odds.outcomes.map((outcome) => ({
           outcomeId: outcome.id,
           amount: row.stakes.get(outcome.id) ?? 0,
@@ -959,6 +1028,7 @@ export async function getMarketDetail(marketId: string, userId: string) {
       userName: comment.user.name,
       userUsername: comment.user.username,
       userId: comment.userId,
+      cosmetics: cosmetics.get(comment.userId) ?? null,
       createdAt: comment.createdAt,
     })),
     resolution: market.resolution,
@@ -1136,10 +1206,13 @@ export async function getActivityFeed(limit = 30, leagueId?: string) {
     },
   });
 
+  const cosmetics = await getEquippedCosmetics(bets.map((bet) => bet.userId));
+
   return bets.map((bet) => ({
     id: bet.id,
     userName: bet.user.name,
     userUsername: bet.user.username,
+    cosmetics: cosmetics.get(bet.userId) ?? null,
     outcomeLabel: outcomeDisplayLabel(bet.outcome),
     outcomeColor: bet.outcome.color,
     amount: bet.amount,

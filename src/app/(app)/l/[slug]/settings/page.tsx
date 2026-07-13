@@ -6,9 +6,11 @@ import { InviteCodeCard } from "@/components/leagues/invite-code-card";
 import { LeagueForm } from "@/components/leagues/league-form";
 import { MemberRoleToggle } from "@/components/leagues/member-role-row";
 import { SeasonForm } from "@/components/leagues/season-form";
+import { BadgeGlyph } from "@/components/members/cosmetic-renderers";
+import { MemberAvatar } from "@/components/members/member-avatar";
 import { ProfileLink } from "@/components/members/profile-link";
-import { Avatar } from "@/components/ui/avatar";
 import { LocalTime } from "@/components/ui/local-time";
+import { getEquippedCosmetics } from "@/lib/server/item-service";
 import {
   getActiveSeason,
   getLeagueForViewer,
@@ -48,6 +50,8 @@ export default async function LeagueSettingsPage({
     listSeasons(league.id),
   ]);
 
+  const cosmetics = await getEquippedCosmetics(members.map((row) => row.user.id));
+
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <div className="space-y-4">
@@ -64,8 +68,16 @@ export default async function LeagueSettingsPage({
                   username={row.user.username}
                   className="flex min-w-0 items-center gap-2 font-medium hover:underline"
                 >
-                  <Avatar name={row.user.name} size="xs" />
+                  <MemberAvatar
+                    name={row.user.name}
+                    size="xs"
+                    frame={cosmetics.get(row.user.id)?.frame}
+                  />
                   <span className="truncate">{row.user.name}</span>
+                  <BadgeGlyph
+                    badge={cosmetics.get(row.user.id)?.badge}
+                    label={`${row.user.name}'s badge`}
+                  />
                 </ProfileLink>
                 <span className="flex shrink-0 items-center gap-2">
                   <span className="text-xs text-muted">{ROLE_LABEL[row.role]}</span>

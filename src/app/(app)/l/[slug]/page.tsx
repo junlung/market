@@ -3,8 +3,9 @@ import type { Route } from "next";
 import { notFound } from "next/navigation";
 import { CalendarClock, Coins, Flame, Plus, Trophy } from "lucide-react";
 import { SeasonForm } from "@/components/leagues/season-form";
+import { BadgeGlyph } from "@/components/members/cosmetic-renderers";
+import { MemberAvatar } from "@/components/members/member-avatar";
 import { ProfileLink } from "@/components/members/profile-link";
-import { Avatar } from "@/components/ui/avatar";
 import { buttonClasses } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LocalTime } from "@/components/ui/local-time";
@@ -18,6 +19,7 @@ import {
   getUpcomingSeason,
   listLeagueMembers,
 } from "@/lib/server/league-service";
+import { getEquippedCosmetics } from "@/lib/server/item-service";
 import { getActivityFeed } from "@/lib/server/market-service";
 import { getSeasonStandings } from "@/lib/server/season-service";
 import { requireSession } from "@/lib/session";
@@ -51,6 +53,12 @@ export default async function LeagueOverviewPage({
 
   const standings = season ? await getSeasonStandings(season) : [];
   const viewerRow = standings.find((row) => row.userId === session.user.id);
+
+  // one page-level cosmetics batch: feed + members + standings
+  const cosmetics = await getEquippedCosmetics([
+    ...members.map((membership) => membership.user.id),
+    ...standings.map((row) => row.userId),
+  ]);
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -125,9 +133,10 @@ export default async function LeagueOverviewPage({
             {feed.map((item) => (
               <li key={item.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
                 <ProfileLink username={item.userUsername} className="flex shrink-0 items-center gap-2 font-medium">
-                  <Avatar name={item.userName} size="xs" />
+                  <MemberAvatar name={item.userName} size="xs" frame={item.cosmetics?.frame} />
                   {item.userName}
                 </ProfileLink>
+                <BadgeGlyph badge={item.cosmetics?.badge} label={`${item.userName}'s badge`} />
                 <span className="text-muted">
                   bet <span className="font-semibold text-foreground tabular-nums">{formatPoints(item.amount)}</span> on{" "}
                   <span className="font-medium text-foreground">{item.outcomeLabel}</span>
@@ -160,6 +169,10 @@ export default async function LeagueOverviewPage({
                     <ProfileLink username={row.username} className="truncate font-medium hover:underline">
                       {row.name}
                     </ProfileLink>
+                    <BadgeGlyph
+                      badge={cosmetics.get(row.userId)?.badge}
+                      label={`${row.name}'s badge`}
+                    />
                   </span>
                   <span
                     className={
@@ -195,8 +208,16 @@ export default async function LeagueOverviewPage({
                   username={membership.user.username}
                   className="flex min-w-0 items-center gap-2 font-medium hover:underline"
                 >
-                  <Avatar name={membership.user.name} size="xs" />
+                  <MemberAvatar
+                    name={membership.user.name}
+                    size="xs"
+                    frame={cosmetics.get(membership.user.id)?.frame}
+                  />
                   <span className="truncate">{membership.user.name}</span>
+                  <BadgeGlyph
+                    badge={cosmetics.get(membership.user.id)?.badge}
+                    label={`${membership.user.name}'s badge`}
+                  />
                 </ProfileLink>
                 {membership.role !== "MEMBER" ? (
                   <span className="shrink-0 rounded-full bg-warn/10 px-2 py-0.5 text-[11px] font-medium text-warn">

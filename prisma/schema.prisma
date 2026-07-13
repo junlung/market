@@ -49,6 +49,17 @@ enum LedgerEntryType {
   MARKET_REFUND
 }
 
+// The persistent meta-currency (Phase 3, decision #5): earned from Global
+// League rake/placements/achievements, spent in the store. Never interacts
+// with the points economy and never resets.
+enum GemLedgerEntryType {
+  RAKE_CONVERSION
+  ACHIEVEMENT
+  SEASON_PLACEMENT
+  STORE_PURCHASE
+  ADMIN_ADJUST
+}
+
 enum AppLogLevel {
   INFO
   WARN
@@ -129,6 +140,10 @@ model User {
   role         UserRole   @default(MEMBER)
   status       UserStatus @default(PENDING)
 
+  // up to 3 achievement keys (src/lib/achievements.ts) highlighted on the
+  // profile; validated against earned achievements in the service
+  showcasedAchievements String[] @default([])
+
   // membership review audit
   reviewedById String?
   reviewedAt   DateTime?
@@ -148,6 +163,7 @@ model User {
   comments          Comment[]
   appLogs           AppLog[]
   items             UserItem[]
+  gemLedgerEntries  GemLedgerEntry[]
   leagueMemberships LeagueMembership[]
   ownedLeagues      League[]           @relation("LeagueOwner")
 
@@ -168,7 +184,8 @@ model Item {
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
 
-  userItems UserItem[]
+  userItems        UserItem[]
+  gemLedgerEntries GemLedgerEntry[]
 }
 
 // One granted instance of an Item in a user's inventory. Duplicates of the
@@ -266,9 +283,10 @@ model Season {
   // [{ userId, name, username, score, marketsSettled, marketsWon, rank }]
   standings   Json?
 
-  league        League        @relation(fields: [leagueId], references: [id], onDelete: Cascade)
-  markets       Market[]
-  ledgerEntries LedgerEntry[]
+  league           League           @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  markets          Market[]
+  ledgerEntries    LedgerEntry[]
+  gemLedgerEntries GemLedgerEntry[]
 
   @@unique([leagueId, index])
   @@unique([leagueId, startsAt])
@@ -288,7 +306,7 @@ model Market {
   // every market lives in exactly one league (backfilled to the Global
   // League); a market never moves leagues (decisions log, Phase 2)
   leagueId String
-  league   League @relation(fields: [leagueId], references: [id], onDelete: Restrict)
+  league   League  @relation(fields: [leagueId], references: [id], onDelete: Restrict)
   // pinned season for FRESH_PER_SEASON leagues — its stakes/payouts belong
   // to that season's stack. Null in PERSISTENT leagues (the Global League).
   seasonId String?
@@ -330,12 +348,13 @@ model Market {
   firstBetAt   DateTime?
   lastBetAt    DateTime?
 
-  bets          Bet[]
-  poolStakes    PoolStake[]
-  ledgerEntries LedgerEntry[]
-  comments      Comment[]
-  resolution    MarketResolution?
-  appLogs       AppLog[]
+  bets             Bet[]
+  poolStakes       PoolStake[]
+  ledgerEntries    LedgerEntry[]
+  gemLedgerEntries GemLedgerEntry[]
+  comments         Comment[]
+  resolution       MarketResolution?
+  appLogs          AppLog[]
 
   @@index([status, closeTime])
   @@index([category, status])
@@ -465,6 +484,9 @@ model MarketResolution {
   rakeAmount       Int
   dustAmount       Int
   totalPaidOut     Int
+  // gems minted from this market's rake (Phase 3): Σ RAKE_CONVERSION entries.
+  // Invariant: gemsMinted <= rakeAmount (floor rounding drops "gem dust").
+  gemsMinted       Int     @default(0)
 
   // legacy release-1 columns, dual-written for binary markets — dropped in
   // the contract release
@@ -475,6 +497,34 @@ model MarketResolution {
   createdById String
   createdAt   DateTime @default(now())
   market      Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+}
+
+// Append-only gems ledger; balance = SUM(amount) per user (no league scoping —
+// gems are one global wallet). Exactly one provenance anchor is set per type:
+// marketId (RAKE_CONVERSION), seasonId (SEASON_PLACEMENT), achievementKey
+// (ACHIEVEMENT), itemId (STORE_PURCHASE, amount negative). Idempotency for
+// rake/placement grants lives in SQL partial uniques (see partial-indexes.sql);
+// achievementKey uses a plain composite unique since NULLs are distinct.
+model GemLedgerEntry {
+  id             String             @id @default(cuid())
+  userId         String
+  type           GemLedgerEntryType
+  amount         Int
+  marketId       String?
+  seasonId       String?
+  achievementKey String?
+  itemId         String?
+  description    String
+  createdAt      DateTime           @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  market Market? @relation(fields: [marketId], references: [id], onDelete: SetNull)
+  season Season? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  item   Item?   @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, achievementKey])
+  @@index([userId, createdAt])
+  @@index([marketId])
 }
 
 model Comment {

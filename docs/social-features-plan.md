@@ -1,10 +1,10 @@
 # Social Features Plan
 
-**Status: Phase 1 implemented on `social-update`; Phases 2a and 2b implemented on `leagues`**
-(2026-07-12; all verified locally — unit, integration, and e2e suites green. Prod rollout =
-merge + deploy; migrations backfill usernames and league scoping automatically. 2a+ needs
-`CRON_SECRET` set in Vercel env before deploy). Phase 3 (cosmetics/gems) is next, gated on the
-first Global League season finalizing in prod. This is a living document — update the phase
+**Status: Phases 1–2b merged to main; Phases 3a and 3b (gems, cosmetics, store, admin item
+authoring) implemented on `gems-cosmetics`** (2026-07-12; unit, integration, and e2e suites
+green; build green. Prod rollout = merge + deploy + run `npm run backfill-gems` against prod
+once). Remaining roadmap items live under "Later" (avatar upload phase, the 3D trophy
+prototype — see the Phase 3 plan appendix). This is a living document — update the phase
 checklists and the decisions log as work lands. Decisions below were made with Jon on
 2026-07-12; don't silently reverse them, add a dated amendment instead.
 
@@ -277,32 +277,119 @@ Amendments while building (2026-07-12):
 
 ## Phase 3 — Cosmetics v1, gems, store
 
-Prereq: at least one Global League season has finalized, so trophies exist in the wild.
+### Phase 3 kickoff decisions (2026-07-12, with Jon)
 
-- **Rendering**: decorate the existing generated avatar — frames (border/glow), backgrounds,
-  titles (shown under the name), badges (inline flair next to names on leaderboards/comments).
-  All CSS/SVG/emoji driven by `Item.style` Json. No uploads, no sprite sheets.
-- **Gems ledger**: `GemLedgerEntry` mirroring the points ledger (append-only, typed:
-  `RAKE_CONVERSION | ACHIEVEMENT | SEASON_PLACEMENT | STORE_PURCHASE`). Balance = SUM. Never
-  interacts with the points economy.
-- **Rake conversion** (decision #5): at settlement, `writeSettlement` distributes the market's
-  rake as gems pro-rata to winners. Points-rake is still burned from the points economy — the
-  inflation sink stays intact.
-- **Achievements**: a small checker that runs post-settlement / post-season (first win, N-market
-  streak, longshot win at <X% implied odds, season placements). Each grants gems and/or items,
-  idempotent per (user, achievement).
-- **Store**: list `active` items with `storeCost`, buy in a tx (gem balance check → ledger debit
-  → `UserItem` grant, source `PURCHASE`). Equip UI on the account page; equipped state renders
-  wherever the link-up pass from Phase 1 put profile links.
+| # | Decision | Choice |
+|---|----------|--------|
+| 1 | Gem sources | **Global League only** mints gems (rake conversion, placement gems, achievements). Custom leagues grant trophies but never gems — owner-set stacks make them a farming vector. |
+| 2 | Conversion | **1 gem per 1 rake point**, pro-rata to winners by winning stake, floored; remainder ("gem dust") dropped. Points-rake still burns — the sink is untouched. |
+| 3 | Backfill | **Full backfill** at launch: historical rake (replayed from persisted `PoolStake`s), past placements (frozen standings), achievement history. Idempotent, same keys as live paths. |
+| 4 | Achievements v1 | First win; streaks 3/5/10 (consecutive Global wins by resolution order); longshot win (<10% pre-bet implied); volume 10/50/100 settled Global markets. |
+| 5 | BACKGROUND slot | **Profile header banner** (not avatar fill) — future backdrop for the avatar-character / 3D scene. *Dated amendment to the original "decorate the avatar" framing.* |
+| 6 | Render scope | **Everywhere**: frames + badges at every avatar/name surface; titles on profile header + podium only; banner on profile only. |
+| 7 | Avatar upload | **Architect only** — `MemberAvatar` wraps a swappable avatar node; upload ships as its own later phase (amends the original "no uploads ever" stance: uploads are wanted, just not in v1). |
+| 8 | 3D | **Schema-ready only**: `renderer` discriminant in `Item.style` (`css`/`emoji`/`model3d`), reserved mounts in the trophy case + profile banner. Prototype plan lives in the Phase 3 plan appendix. |
+| 9 | Admin UI (3b) | Structured per-kind style editor with live preview + raw-Json escape hatch (server-revalidated) + admin grant tool + price/active management. |
+| 10 | Gem display | Row in the nav balance dropdown (violet `--gem` token, distinct from amber points), store page, account page. |
+| 11 | Tuning | Constants in `src/lib/achievements.ts`: placements 100/50/25; achievements 10–150; store prices 75–300. Retune there. |
+| 12 | Store | One-per-user purchases (partial unique); some items achievement-only so the store doesn't just mirror the leaderboard. |
+
+### Phase 3a — shipped (2026-07-12, branch `gems-cosmetics`)
+
+- [x] Schema (`20260712150000_gems_cosmetics`): `GemLedgerEntry` (typed, signed, append-only;
+      balance = SUM; provenance anchors marketId/seasonId/achievementKey/itemId),
+      `MarketResolution.gemsMinted`, four partial uniques (rake per [user, market], placement
+      per [user, season], purchase per [user, item], one equipped item per [user, slot]) —
+      mirrored in `prisma/partial-indexes.sql`
+- [x] `src/lib/gems.ts`: `computeRakeGemSplit` (floor pro-rata + conservation check, parimutuel
+      style) + breakdown helpers; `PayoutRow.winningStake` added to `parimutuel.ts`
+- [x] Rake→gems inside the `writeSettlement` tx (Global + NORMAL + rake > 0 only; cancel/refund
+      no-op; status guard prevents re-entry, the partial unique is a backstop)
+- [x] Achievements: `src/lib/achievements.ts` (pure evaluator + the tuning constants) +
+      `achievement-service` (one-query history incl. pre-bet implied odds from bet snapshots;
+      idempotent grants; badge items for streak-5/10, longshot, volume-100 — never purchasable).
+      Trigger = post-commit in `resolveMarket` (in-tx would balloon the SERIALIZABLE read set),
+      logged WARN on failure; daily cron re-sweeps the last 48h of resolutions as the safety net
+- [x] Placement gems (100/50/25) granted beside trophies in `finalizeDueSeasons`, Global only,
+      idempotent per [user, season]; ties share the tied rank's amount
+- [x] `gem-service` (balance/breakdown/ledger/adjust) + `store-service.purchaseItem`
+      (SERIALIZABLE: ownership check → SUM balance check → grant + debit atomically)
+- [x] Cosmetics: `src/lib/cosmetics.ts` (zod schemas per kind, `renderer` discriminant,
+      hex-locked colors, `parseItemStyle` never throws — junk renders as nothing; legacy trophy
+      `{emoji}` upgraded in place); `item-service` equip tx + `getEquippedCosmetics(userIds[])`
+      batch (one call per page, parsed server-side) + locker/catalog reads +
+      `ensureStarterCatalog` (10 items, upsert-by-slug, also seeded)
+- [x] Renderers (`cosmetic-renderers.tsx`: AvatarFrame with absolute-positioned ring = zero
+      layout shift in xs rows, BadgeGlyph, TitleLine, ProfileBanner with `data-scene-mount`) +
+      `MemberAvatar` (the swappable avatar-node seam) + `MemberName`; rolled out to profile,
+      leaderboard (podium titles), market detail (positions/comments/activity), activity feed,
+      league overview/leaderboard/settings/layout, admin members, user menu. Trophy case
+      rewritten on `parseItemStyle`; `model3d` items render a placeholder tile with a
+      `data-model-mount` div. Invite page + pending/rejected admin rows stay plain (pending
+      users can't own cosmetics)
+- [x] UI: account Locker (`equip-panel.tsx`, live self-preview) + gems card with breakdown;
+      `/store` (grouped catalog, previews on the viewer's own identity, Buy/Owned/insufficient
+      states; middleware matcher + `PROTECTED_PREFIXES` extended); nav balance dropdown gems row
+      (`--gem` violet token; chip face stays points-only; the chip is now always a dropdown);
+      user-menu Store link + framed avatar; `actions/items.ts` (equip/unequip/purchase)
+- [x] Backfill: `src/lib/server/backfill-gems.ts` + `npm run backfill-gems` — replays
+      settlements from persisted stakes with a rake/winningPool cross-check (mismatch = skip +
+      log, never guess), grants past placements from frozen standings, evaluates achievement
+      history; wholly re-runnable (verified: re-run = 0 new grants)
+- [x] Tests: unit (gem split fuzz vs settlements, achievement evaluator boundaries, style
+      parsing + CSS-injection rejection), 10 new integration tests (mint/no-mint paths,
+      achievement hooks + idempotency, placement gems incl. custom-league-none, store
+      concurrency, equip slot exclusivity, backfill), e2e (nav gems row, buy → equip → badge
+      visible on leaderboard); all suites + build green
+
+Amendments while building (2026-07-12):
+
+- **Achievement badge grants ride the resolve hook**, so integration assertions about "gems from
+  this market" scope by `type` — rake and achievement entries can share a marketId.
+- **`getEquippedCosmetics` filters `item.active`** — retiring an item un-renders it everywhere
+  without touching equip state.
+- **Balance chip is always a dropdown now** (gems make the menu non-degenerate even with zero
+  custom leagues).
+- **Demo gems** (500, `ADMIN_ADJUST`) seeded for the demo members so the store works out of the
+  box and in e2e.
+- **Achievement discovery** (follow-up, same day — Jon: achievements need a browsable surface):
+  profile gets an Achievements section showing up to `SHOWCASE_LIMIT` (3) highlights the member
+  picks (star toggles on their own `/u/[username]/achievements` page; falls back to most
+  recently earned; `User.showcasedAchievements`, migration
+  `20260712160000_achievement_showcase`, earned-only + cap validated in
+  `setShowcasedAchievements`). The full-list page shows all defs — earned lit with date + gem
+  reward, unearned dimmed with a lock. Each def gained a display `emoji`.
+
+### Phase 3b — shipped (2026-07-12, branch `gems-cosmetics`)
+
+- [x] `/admin/items` list (all items incl. inactive, owner counts, kind/price/status columns)
+- [x] `/admin/items/new` + `/admin/items/[itemId]`: structured per-kind style editor compiling
+      to the `src/lib/cosmetics.ts` schemas, live preview via the shared renderers (sample
+      identity at lg and xs, plus a trophy-case tile for trophies), raw-Json escape hatch with
+      inline validation that round-trips back into the structured fields; server actions
+      re-validate with `parseItemStyle` so unrenderable style can never persist. Slug and kind
+      are immutable after creation (kind changes would orphan equipped slots)
+- [x] Grant tool on the item detail page (ACTIVE member select, `ADMIN_GRANT`, no grantKey)
+- [x] Validation schemas (`itemSlugSchema`, `itemFormSchema`, `grantItemAdminSchema`), admin
+      hub link, e2e (admin creates frame → grants to Alex → Alex equips it from the locker)
+
 - **Watch**: pro-rata rake means big bettors accumulate gems fastest — keep desirable items
-  achievement-only so the store doesn't just mirror the leaderboard.
+  achievement-only so the store doesn't just mirror the leaderboard (starter catalog keeps
+  `title-oracle` unpurchasable as the precedent).
 
 ---
 
 ## Later / explicitly out of scope for now
 
+- **Avatar image upload** (its own small phase — wanted, amended 2026-07-12): Vercel Blob,
+  square crop, size cap. The renderers already wrap a swappable avatar node (`MemberAvatar`'s
+  `avatarNode` prop), so uploads slot in without touching frames/banners.
+- **Low-poly 3D trophies** (PS1-style, WebGL): schema is ready (`renderer: "model3d"` +
+  reserved mounts in the trophy case and profile banner). The actionable prototype plan —
+  Blockbench asset, react-three-fiber viewer, dynamic import with the placeholder tile as
+  fallback — lives in the Phase 3 implementation plan appendix.
+- Eventually: the customizable avatar CHARACTER (the banner becomes its scene backdrop).
 - Truly public (unauthenticated) profiles as an opt-in
-- Layered paper-doll avatars (real art pipeline) — only if cosmetics v1 lands well
 - Email notifications (nothing in the stack sends email today)
 - Long-horizon "all-time" vs seasonal market scopes for custom leagues (Global handles this via
   decision #3 already)

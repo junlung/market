@@ -3,8 +3,10 @@ import { notFound } from "next/navigation";
 import { MarketStatus } from "@prisma/client";
 import clsx from "clsx";
 import { CalendarDays, Pencil } from "lucide-react";
+import { AchievementCard } from "@/components/members/achievement-card";
+import { BadgeGlyph, ProfileBanner, TitleLine } from "@/components/members/cosmetic-renderers";
+import { MemberAvatar } from "@/components/members/member-avatar";
 import { TrophyCase } from "@/components/members/trophy-case";
-import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LocalTime } from "@/components/ui/local-time";
 import { StatCard } from "@/components/ui/stat-card";
@@ -35,12 +37,16 @@ export default async function ProfilePage({ params }: Props) {
 
   return (
     <section className="space-y-5">
-      <div className="rounded-xl border border-border bg-surface p-5">
+      <ProfileBanner
+        banner={profile.cosmetics.banner}
+        className="rounded-xl border border-border bg-surface p-5"
+      >
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-          <Avatar name={profile.name} size="lg" />
+          <MemberAvatar name={profile.name} size="lg" frame={profile.cosmetics.frame} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
               <h1 className="text-xl font-semibold">{profile.name}</h1>
+              <BadgeGlyph badge={profile.cosmetics.badge} label={`${profile.name}'s badge`} />
               <span className="text-sm text-muted">@{profile.username}</span>
               {profile.role === "ADMIN" ? (
                 <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-faint">
@@ -48,6 +54,7 @@ export default async function ProfilePage({ params }: Props) {
                 </span>
               ) : null}
             </div>
+            <TitleLine title={profile.cosmetics.title} className="mt-0.5 block" />
             {profile.bio ? (
               <p className="mt-1.5 max-w-prose text-sm text-muted">{profile.bio}</p>
             ) : null}
@@ -65,7 +72,7 @@ export default async function ProfilePage({ params }: Props) {
             </Link>
           ) : null}
         </div>
-      </div>
+      </ProfileBanner>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -87,6 +94,31 @@ export default async function ProfilePage({ params }: Props) {
           label="Biggest payout"
           value={`${formatPoints(stats.biggestPayout)} pts`}
         />
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-faint">Achievements</h2>
+          <Link
+            href={`/u/${profile.username}/achievements`}
+            className="text-xs font-medium text-primary hover:text-primary-hover"
+          >
+            All achievements →
+          </Link>
+        </div>
+        {profile.showcasedAchievements.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-border bg-surface p-4 text-sm text-muted">
+            {ownProfile
+              ? "Nothing earned yet — win a market and it starts here."
+              : `${profile.name} hasn't earned any achievements yet.`}
+          </p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {profile.showcasedAchievements.map((row) => (
+              <AchievementCard key={row.def.key} progress={row} />
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="space-y-3">

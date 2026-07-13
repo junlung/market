@@ -3,17 +3,20 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
-import { CircleUserRound, Crown, History, LogOut, PlusCircle, Shield, User, UserPlus } from "lucide-react";
-import { Avatar } from "@/components/ui/avatar";
+import { CircleUserRound, Crown, History, LogOut, PlusCircle, Shield, Store, User, UserPlus } from "lucide-react";
+import { MemberAvatar } from "@/components/members/member-avatar";
+import type { FrameStyle } from "@/lib/cosmetics";
 
 export function UserMenu({
   name,
   username,
   isAdmin,
+  frame,
 }: {
   name: string;
   username: string;
   isAdmin: boolean;
+  frame?: FrameStyle | null;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -40,7 +43,7 @@ export function UserMenu({
         aria-expanded={open}
         className="flex items-center rounded-full transition-opacity hover:opacity-80"
       >
-        <Avatar name={name} size="md" />
+        <MemberAvatar name={name} size="md" frame={frame} />
       </button>
       {open ? (
         <div
@@ -62,6 +65,9 @@ export function UserMenu({
           </Link>
           <Link href="/leagues" className={itemClass} onClick={() => setOpen(false)}>
             <Crown className="size-4" /> Leagues
+          </Link>
+          <Link href="/store" className={itemClass} onClick={() => setOpen(false)}>
+            <Store className="size-4" /> Store
           </Link>
           <Link href="/invite" className={itemClass} onClick={() => setOpen(false)}>
             <UserPlus className="size-4" /> Invite friends

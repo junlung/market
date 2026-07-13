@@ -20,6 +20,9 @@
   --no-bg: rgba(220, 38, 38, 0.1);
   --warn: #d97706;
   --resolved: #0284c7;
+  /* gems (Phase 3 meta-currency) — violet, deliberately distinct from the
+     amber points styling so the two currencies never read as one */
+  --gem: #7c3aed;
 
   /* Outcome swatches. The first six (the multi-outcome deal order: blue →
      orange → purple → teal → amber → pink) are validator-checked as an
@@ -61,6 +64,7 @@
   --no-bg: rgba(239, 68, 68, 0.14);
   --warn: #f59e0b;
   --resolved: #38bdf8;
+  --gem: #a78bfa;
 
   /* same swatch set re-stepped for the dark surface; the deal-order six are
      validator-checked here separately (worst adjacent CVD ΔE 42) */
@@ -96,6 +100,7 @@
   --color-no-bg: var(--no-bg);
   --color-warn: var(--warn);
   --color-resolved: var(--resolved);
+  --color-gem: var(--gem);
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --radius-card: 0.75rem;
 }

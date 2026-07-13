@@ -9,6 +9,9 @@ export type PayoutRow = {
   userId: string;
   amount: number;
   kind: "PAYOUT" | "REFUND";
+  // the user's stake on the winning outcome — the pro-rata basis for the
+  // rake→gems conversion (Phase 3). Always 0 on REFUND rows.
+  winningStake: number;
 };
 
 export type SettlementMode = "NORMAL" | "REFUND_ALL" | "EMPTY";
@@ -123,7 +126,7 @@ function groupByUser(stakes: OutcomeStake[], winningOutcomeId: string | null) {
 function refundAll(users: Array<{ userId: string; total: number }>, totalIn: number): SettlementResult {
   const payouts = users
     .filter((row) => row.total > 0)
-    .map((row) => ({ userId: row.userId, amount: row.total, kind: "REFUND" as const }));
+    .map((row) => ({ userId: row.userId, amount: row.total, kind: "REFUND" as const, winningStake: 0 }));
 
   return {
     mode: "REFUND_ALL",
@@ -196,7 +199,7 @@ export function computeSettlement(
 
     const share = Math.floor((row.winning * distributable) / winningPool);
     distributed += share;
-    payouts.push({ userId: row.userId, amount: row.winning + share, kind: "PAYOUT" });
+    payouts.push({ userId: row.userId, amount: row.winning + share, kind: "PAYOUT", winningStake: row.winning });
   }
 
   const dust = distributable - distributed;

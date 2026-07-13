@@ -1,7 +1,9 @@
 import Link from "next/link";
 import clsx from "clsx";
+import { BadgeGlyph } from "@/components/members/cosmetic-renderers";
+import { MemberAvatar } from "@/components/members/member-avatar";
 import { ProfileLink } from "@/components/members/profile-link";
-import { Avatar } from "@/components/ui/avatar";
+import type { EquippedCosmetics } from "@/lib/cosmetics";
 import { formatChance, formatPoints, formatRelativeTime } from "@/lib/format";
 import { outcomeColorVar } from "@/lib/outcome-colors";
 
@@ -9,6 +11,7 @@ export type ActivityItem = {
   id: string;
   userName: string;
   userUsername: string;
+  cosmetics?: EquippedCosmetics | null;
   outcomeLabel: string;
   outcomeColor: string;
   amount: number;
@@ -22,13 +25,18 @@ export function ActivityRow({ item }: { item: ActivityItem }) {
   return (
     <div className="flex items-center gap-3 py-2.5">
       <ProfileLink username={item.userUsername} className="shrink-0">
-        <Avatar name={item.userName} size="sm" />
+        <MemberAvatar name={item.userName} size="sm" frame={item.cosmetics?.frame} />
       </ProfileLink>
       <div className="min-w-0 flex-1 text-sm">
         <p className="truncate">
           <ProfileLink username={item.userUsername} className="font-semibold">
             {item.userName}
-          </ProfileLink>{" "}
+          </ProfileLink>
+          <BadgeGlyph
+            badge={item.cosmetics?.badge}
+            label={`${item.userName}'s badge`}
+            className="ml-1"
+          />{" "}
           <span className="text-muted">bet</span>{" "}
           <span className="font-semibold tabular-nums">{formatPoints(item.amount)} pts</span>{" "}
           <span className="text-muted">on</span>{" "}

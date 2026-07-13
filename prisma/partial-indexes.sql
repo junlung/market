@@ -8,3 +8,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS "League_isGlobal_key" ON "League"("isGlobal") 
 
 -- one fresh stack per user per season (20260712130100_league_settings_seasons)
 CREATE UNIQUE INDEX IF NOT EXISTS "LedgerEntry_seasonStack_key" ON "LedgerEntry"("userId", "seasonId") WHERE "type" = 'SEASON_STACK';
+
+-- one rake conversion per user per market (20260712150000_gems_cosmetics)
+CREATE UNIQUE INDEX IF NOT EXISTS "GemLedgerEntry_rakeConversion_key" ON "GemLedgerEntry"("userId", "marketId") WHERE "type" = 'RAKE_CONVERSION';
+
+-- one placement grant per user per season (20260712150000_gems_cosmetics)
+CREATE UNIQUE INDEX IF NOT EXISTS "GemLedgerEntry_seasonPlacement_key" ON "GemLedgerEntry"("userId", "seasonId") WHERE "type" = 'SEASON_PLACEMENT';
+
+-- one store purchase per user per item (20260712150000_gems_cosmetics)
+CREATE UNIQUE INDEX IF NOT EXISTS "UserItem_purchase_key" ON "UserItem"("userId", "itemId") WHERE "source" = 'PURCHASE';
+
+-- at most one equipped item per slot (20260712150000_gems_cosmetics)
+CREATE UNIQUE INDEX IF NOT EXISTS "UserItem_equipped_slot_key" ON "UserItem"("userId", "equippedSlot") WHERE "equippedSlot" IS NOT NULL;

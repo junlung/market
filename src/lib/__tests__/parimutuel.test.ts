@@ -70,7 +70,7 @@ describe("computeSettlement", () => {
     expect(result.winningPool).toBe(100);
     expect(result.losingPool).toBe(300);
     expect(result.rake).toBe(15);
-    expect(result.payouts).toEqual([{ userId: "casey", amount: 385, kind: "PAYOUT" }]);
+    expect(result.payouts).toEqual([{ userId: "casey", amount: 385, kind: "PAYOUT", winningStake: 100 }]);
     expect(result.dust).toBe(0);
     expect(checkConservation(result)).toBe(true);
   });
@@ -87,7 +87,7 @@ describe("computeSettlement", () => {
     expect(result.winningPool).toBe(60);
     expect(result.losingPool).toBe(240);
     expect(result.rake).toBe(12);
-    expect(result.payouts).toEqual([{ userId: "blair", amount: 288, kind: "PAYOUT" }]);
+    expect(result.payouts).toEqual([{ userId: "blair", amount: 288, kind: "PAYOUT", winningStake: 60 }]);
     expect(checkConservation(result)).toBe(true);
   });
 
@@ -104,8 +104,8 @@ describe("computeSettlement", () => {
     const result = computeSettlement(stakes, "yes", 500);
     expect(result.rake).toBe(12);
     expect(result.payouts).toEqual([
-      { userId: "alex", amount: 308, kind: "PAYOUT" },
-      { userId: "casey", amount: 77, kind: "PAYOUT" },
+      { userId: "alex", amount: 308, kind: "PAYOUT", winningStake: 120 },
+      { userId: "casey", amount: 77, kind: "PAYOUT", winningStake: 30 },
     ]);
     expect(result.dust).toBe(0);
     expect(checkConservation(result)).toBe(true);
@@ -136,7 +136,7 @@ describe("computeSettlement", () => {
     // arsenal wins: W = 100 (hedger), L = 200 (hedger's draw + other's chelsea)
     // rake = 10, distributable = 190 → hedger gets 100 + 190 = 290, one row
     const result = computeSettlement(stakes, "arsenal", 500);
-    expect(result.payouts).toEqual([{ userId: "hedger", amount: 290, kind: "PAYOUT" }]);
+    expect(result.payouts).toEqual([{ userId: "hedger", amount: 290, kind: "PAYOUT", winningStake: 100 }]);
     expect(checkConservation(result)).toBe(true);
   });
 
@@ -164,8 +164,8 @@ describe("computeSettlement", () => {
     expect(result.mode).toBe("REFUND_ALL");
     expect(result.rake).toBe(0);
     expect(result.payouts).toEqual([
-      { userId: "alex", amount: 200, kind: "REFUND" },
-      { userId: "blair", amount: 100, kind: "REFUND" },
+      { userId: "alex", amount: 200, kind: "REFUND", winningStake: 0 },
+      { userId: "blair", amount: 100, kind: "REFUND", winningStake: 0 },
     ]);
     expect(checkConservation(result)).toBe(true);
   });
@@ -181,8 +181,8 @@ describe("computeSettlement", () => {
     expect(result.rake).toBe(0);
     expect(result.dust).toBe(0);
     expect(result.payouts).toEqual([
-      { userId: "alex", amount: 200, kind: "PAYOUT" },
-      { userId: "blair", amount: 50, kind: "PAYOUT" },
+      { userId: "alex", amount: 200, kind: "PAYOUT", winningStake: 200 },
+      { userId: "blair", amount: 50, kind: "PAYOUT", winningStake: 50 },
     ]);
   });
 
@@ -228,8 +228,8 @@ describe("computeCancelRefunds", () => {
     const result = computeCancelRefunds(stakes);
     expect(result.mode).toBe("REFUND_ALL");
     expect(result.payouts).toEqual([
-      { userId: "alex", amount: 150, kind: "REFUND" },
-      { userId: "blair", amount: 75, kind: "REFUND" },
+      { userId: "alex", amount: 150, kind: "REFUND", winningStake: 0 },
+      { userId: "blair", amount: 75, kind: "REFUND", winningStake: 0 },
     ]);
     expect(checkConservation(result)).toBe(true);
   });
@@ -319,12 +319,14 @@ describe("conservation fuzzing", () => {
 
       if (result.mode === "NORMAL") {
         // winners never take home less than their winning stake — even when
-        // they also hold losing outcomes
+        // they also hold losing outcomes — and the row's winningStake
+        // snapshot matches the raw stakes (the rake→gems pro-rata basis)
         for (const payout of result.payouts) {
           const winningStake = stakes
             .filter((s) => s.userId === payout.userId && s.outcomeId === winner)
             .reduce((sum, s) => sum + s.amount, 0);
           expect(payout.amount).toBeGreaterThanOrEqual(winningStake);
+          expect(payout.winningStake).toBe(winningStake);
         }
         // dust is bounded by winners - 1 rounding losses of < 1 point each
         expect(result.dust).toBeLessThanOrEqual(Math.max(result.payouts.length - 1, 0));

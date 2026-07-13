@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation";
 import clsx from "clsx";
 import { Crown, Trophy } from "lucide-react";
+import { BadgeGlyph } from "@/components/members/cosmetic-renderers";
+import { MemberAvatar } from "@/components/members/member-avatar";
 import { ProfileLink } from "@/components/members/profile-link";
-import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LocalTime } from "@/components/ui/local-time";
 import { formatSignedPoints } from "@/lib/format";
+import { getEquippedCosmetics } from "@/lib/server/item-service";
 import {
   getActiveSeason,
   getLeagueForViewer,
@@ -59,6 +61,13 @@ export default async function LeagueLeaderboardPage({
   const participantIds = new Set(standings.map((row) => row.userId));
   const spectators = members.filter((membership) => !participantIds.has(membership.user.id));
 
+  // one page-level cosmetics batch: members covers standings + spectators;
+  // past champions may include departed members, so add them too
+  const cosmetics = await getEquippedCosmetics([
+    ...members.map((membership) => membership.user.id),
+    ...finalized.flatMap((past) => parseStandings(past.standings).map((row) => row.userId)),
+  ]);
+
   return (
     <div className="space-y-5">
       {season ? (
@@ -108,13 +117,23 @@ export default async function LeagueLeaderboardPage({
                     )}
                   </td>
                   <td className="px-4 py-2.5">
-                    <ProfileLink username={entry.username} className="flex items-center gap-2 font-medium">
-                      <Avatar name={entry.name} size="xs" />
-                      {entry.name}
+                    <span className="flex items-center gap-2 font-medium">
+                      <ProfileLink username={entry.username} className="flex items-center gap-2">
+                        <MemberAvatar
+                          name={entry.name}
+                          size="xs"
+                          frame={cosmetics.get(entry.userId)?.frame}
+                        />
+                        {entry.name}
+                      </ProfileLink>
+                      <BadgeGlyph
+                        badge={cosmetics.get(entry.userId)?.badge}
+                        label={`${entry.name}'s badge`}
+                      />
                       {entry.userId === session.user.id ? (
                         <span className="text-xs font-normal text-faint">(you)</span>
                       ) : null}
-                    </ProfileLink>
+                    </span>
                   </td>
                   <td className={clsx("px-4 py-2.5 text-right font-bold tabular-nums", scoreTone(entry.score))}>
                     {formatSignedPoints(entry.score)}
@@ -132,8 +151,16 @@ export default async function LeagueLeaderboardPage({
                           username={membership.user.username}
                           className="flex items-center gap-2 font-medium"
                         >
-                          <Avatar name={membership.user.name} size="xs" />
+                          <MemberAvatar
+                            name={membership.user.name}
+                            size="xs"
+                            frame={cosmetics.get(membership.user.id)?.frame}
+                          />
                           {membership.user.name}
+                          <BadgeGlyph
+                            badge={cosmetics.get(membership.user.id)?.badge}
+                            label={`${membership.user.name}'s badge`}
+                          />
                         </ProfileLink>
                       </td>
                       <td className="px-4 py-2.5 text-right text-xs text-faint" colSpan={3}>
@@ -167,6 +194,10 @@ export default async function LeagueLeaderboardPage({
                         <ProfileLink username={champion.username} className="hover:underline">
                           {champion.name}
                         </ProfileLink>{" "}
+                        <BadgeGlyph
+                          badge={cosmetics.get(champion.userId)?.badge}
+                          label={`${champion.name}'s badge`}
+                        />{" "}
                         <span className={clsx("tabular-nums", scoreTone(champion.score))}>
                           {formatSignedPoints(champion.score)}
                         </span>

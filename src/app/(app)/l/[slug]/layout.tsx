@@ -3,8 +3,10 @@ import { UserRole } from "@prisma/client";
 import { Lock, Users } from "lucide-react";
 import { JoinLeagueForm } from "@/components/leagues/join-league-form";
 import { LeagueNav } from "@/components/leagues/league-nav";
+import { BadgeGlyph } from "@/components/members/cosmetic-renderers";
 import { ProfileLink } from "@/components/members/profile-link";
 import { ensureLeagueAllowance } from "@/lib/server/allowance-service";
+import { getUserCosmetics } from "@/lib/server/item-service";
 import { getLeagueForViewer } from "@/lib/server/league-service";
 import { requireSession } from "@/lib/session";
 
@@ -58,6 +60,8 @@ export default async function LeagueLayout({
   const canManage =
     isAppAdmin || membership?.role === "OWNER" || membership?.role === "MOD";
 
+  const ownerCosmetics = league.owner ? await getUserCosmetics(league.owner.id) : null;
+
   return (
     <section className="space-y-5">
       <div>
@@ -72,7 +76,8 @@ export default async function LeagueLayout({
               run by{" "}
               <ProfileLink username={league.owner.username} className="font-medium text-muted hover:underline">
                 {league.owner.name}
-              </ProfileLink>
+              </ProfileLink>{" "}
+              <BadgeGlyph badge={ownerCosmetics?.badge} label={`${league.owner.name}'s badge`} />
             </span>
           ) : null}
         </div>

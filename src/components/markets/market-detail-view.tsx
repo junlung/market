@@ -36,6 +36,7 @@ import {
   outcomeColorVar,
   outcomeDisplayLabel,
 } from "@/lib/outcome-colors";
+import { getUserCosmetics } from "@/lib/server/item-service";
 import {
   canOperateLeague,
   getLeagueBalance,
@@ -115,6 +116,9 @@ export async function MarketDetailView({ marketId, side, outcomeParam, expectedL
 
   const viewerSettled =
     market.positions.find((position) => position.userId === session.user.id) ?? null;
+
+  // for the comment composer's avatar + optimistic rows
+  const viewerCosmetics = await getUserCosmetics(session.user.id);
 
   // league operators manage the market inline (there is no /admin for
   // custom leagues); settlement previews only exist once there are stakes
@@ -330,6 +334,7 @@ export async function MarketDetailView({ marketId, side, outcomeParam, expectedL
                 comments={market.comments}
                 viewerName={session.user.name ?? "You"}
                 viewerUsername={session.user.username}
+                viewerCosmetics={viewerCosmetics}
               />
             ),
             positions: (

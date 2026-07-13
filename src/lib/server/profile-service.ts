@@ -1,6 +1,7 @@
 import { LedgerEntryType, MarketStatus, UserStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { listUserItems } from "@/lib/server/item-service";
+import { getShowcasedAchievements } from "@/lib/server/achievement-service";
+import { getUserCosmetics, listUserItems } from "@/lib/server/item-service";
 import { ensureGlobalLeague } from "@/lib/server/league-service";
 
 const RECENT_RESULTS_LIMIT = 8;
@@ -29,13 +30,19 @@ export async function getProfileByUsername(username: string) {
     return null;
   }
 
-  const [stats, trophyCase, recentResults] = await Promise.all([
+  const [stats, inventory, recentResults, cosmetics, showcasedAchievements] = await Promise.all([
     getCareerStats(user.id),
     listUserItems(user.id),
     getRecentResults(user.id),
+    getUserCosmetics(user.id),
+    getShowcasedAchievements(user.id),
   ]);
 
-  return { ...user, stats, trophyCase, recentResults };
+  // the trophy case shows trophies only — equippable cosmetics live in the
+  // account locker and render on the identity itself
+  const trophyCase = inventory.filter((owned) => owned.item.kind === "TROPHY");
+
+  return { ...user, stats, trophyCase, recentResults, cosmetics, showcasedAchievements };
 }
 
 /**

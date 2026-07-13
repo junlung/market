@@ -3,8 +3,10 @@
 import { useActionState, useEffect, useOptimistic, useRef, startTransition } from "react";
 import { createCommentAction } from "@/app/actions/comments";
 import type { ActionResult } from "@/lib/server/market-service";
+import { BadgeGlyph } from "@/components/members/cosmetic-renderers";
+import { MemberAvatar } from "@/components/members/member-avatar";
 import { ProfileLink } from "@/components/members/profile-link";
-import { Avatar } from "@/components/ui/avatar";
+import type { EquippedCosmetics } from "@/lib/cosmetics";
 import { formatRelativeTime } from "@/lib/format";
 
 export type CommentItem = {
@@ -13,6 +15,7 @@ export type CommentItem = {
   userName: string;
   userUsername: string;
   userId: string;
+  cosmetics?: EquippedCosmetics | null;
   createdAt: Date | string;
   pending?: boolean;
 };
@@ -22,11 +25,13 @@ export function CommentThread({
   comments,
   viewerName,
   viewerUsername,
+  viewerCosmetics,
 }: {
   marketId: string;
   comments: CommentItem[];
   viewerName: string;
   viewerUsername: string;
+  viewerCosmetics?: EquippedCosmetics | null;
 }) {
   const [optimisticComments, addOptimistic] = useOptimistic(
     comments,
@@ -37,6 +42,7 @@ export function CommentThread({
         userName: viewerName,
         userUsername: viewerUsername,
         userId: "viewer",
+        cosmetics: viewerCosmetics ?? null,
         createdAt: new Date(),
         pending: true,
       },
@@ -66,7 +72,7 @@ export function CommentThread({
         }}
         className="flex items-start gap-2.5"
       >
-        <Avatar name={viewerName} size="sm" className="mt-1" />
+        <MemberAvatar name={viewerName} size="sm" frame={viewerCosmetics?.frame} className="mt-1" />
         <div className="flex-1">
           <textarea
             name="body"
@@ -98,13 +104,18 @@ export function CommentThread({
             <div key={comment.id} className={comment.pending ? "opacity-60" : undefined}>
               <div className="flex items-start gap-2.5 py-3">
                 <ProfileLink username={comment.userUsername} className="mt-0.5 shrink-0">
-                  <Avatar name={comment.userName} size="sm" />
+                  <MemberAvatar name={comment.userName} size="sm" frame={comment.cosmetics?.frame} />
                 </ProfileLink>
                 <div className="min-w-0 flex-1">
                   <p className="text-xs">
                     <ProfileLink username={comment.userUsername} className="font-semibold text-foreground">
                       {comment.userName}
-                    </ProfileLink>{" "}
+                    </ProfileLink>
+                    <BadgeGlyph
+                      badge={comment.cosmetics?.badge}
+                      label={`${comment.userName}'s badge`}
+                      className="ml-1"
+                    />{" "}
                     <span className="text-faint">{formatRelativeTime(comment.createdAt)}</span>
                   </p>
                   <p className="mt-0.5 whitespace-pre-wrap break-words text-sm">{comment.body}</p>

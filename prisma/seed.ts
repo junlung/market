@@ -1,4 +1,4 @@
-import { LedgerEntryType, UserRole, UserStatus } from "@prisma/client";
+import { GemLedgerEntryType, LedgerEntryType, UserRole, UserStatus } from "@prisma/client";
 import { hash } from "bcryptjs";
 import { getIsoWeekKey } from "../src/lib/allowance";
 import { appConfig } from "../src/lib/config";
@@ -6,6 +6,8 @@ import { BINARY_PRESET } from "../src/lib/outcome-colors";
 import { prisma } from "../src/lib/prisma";
 import { placeBet } from "../src/lib/server/bet-service";
 import { createComment } from "../src/lib/server/comment-service";
+import { ensureAchievementItems } from "../src/lib/server/achievement-service";
+import { ensureStarterCatalog } from "../src/lib/server/item-service";
 import { ensureGlobalLeague, ensureLeagueMembership } from "../src/lib/server/league-service";
 import { ensureCurrentSeason } from "../src/lib/server/season-service";
 import {
@@ -122,6 +124,25 @@ async function seedUsers(defaultPassword: string) {
     casey: byEmail.get("casey@prollymarket.local")!,
     dana: byEmail.get("dana@prollymarket.local")!,
   };
+}
+
+/** Demo gems so the store is usable out of the box (and in e2e runs). */
+async function seedDemoGems(users: Awaited<ReturnType<typeof seedUsers>>) {
+  for (const user of [users.alex, users.blair, users.casey, users.dana]) {
+    const existing = await prisma.gemLedgerEntry.findFirst({
+      where: { userId: user.id, type: GemLedgerEntryType.ADMIN_ADJUST },
+    });
+    if (!existing) {
+      await prisma.gemLedgerEntry.create({
+        data: {
+          userId: user.id,
+          type: GemLedgerEntryType.ADMIN_ADJUST,
+          amount: 500,
+          description: "Demo gems",
+        },
+      });
+    }
+  }
 }
 
 /** outcome is the sortOrder index into the market's outcomes. */
@@ -397,6 +418,9 @@ async function main() {
   const defaultPassword = process.env.SEED_DEFAULT_PASSWORD ?? "password123";
   const users = await seedUsers(defaultPassword);
   await seedMarkets(users);
+  await ensureStarterCatalog();
+  await ensureAchievementItems();
+  await seedDemoGems(users);
   console.log("Seed complete.");
   console.log("Sign in as admin@prollymarket.local / alex@ / blair@ / casey@ / dana@prollymarket.local");
   console.log(`Password: ${defaultPassword}`);

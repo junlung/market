@@ -5,7 +5,9 @@ import { Avatar } from "@/components/ui/avatar";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { MemberAvatar } from "@/components/members/member-avatar";
 import { formatPoints } from "@/lib/format";
+import { getEquippedCosmetics } from "@/lib/server/item-service";
 import { getMembersOverview } from "@/lib/server/member-service";
 import { requireAdminSession } from "@/lib/session";
 
@@ -16,6 +18,9 @@ export default async function AdminMembersPage() {
   const active = members.filter((member) => member.status === "ACTIVE");
   const rejected = members.filter((member) => member.status === "REJECTED");
   const vouched = pending.filter((member) => member.vouchedBy);
+
+  // only active members can own cosmetics — pending/rejected rows stay plain
+  const cosmetics = await getEquippedCosmetics(active.map((user) => user.id));
 
   return (
     <section className="space-y-5">
@@ -83,7 +88,7 @@ export default async function AdminMembersPage() {
           {active.map((user) => (
             <div key={user.id} className="flex items-center justify-between gap-3 p-4">
               <div className="flex min-w-0 items-center gap-3">
-                <Avatar name={user.name} size="sm" />
+                <MemberAvatar name={user.name} size="sm" frame={cosmetics.get(user.id)?.frame} />
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">
                     {user.name}

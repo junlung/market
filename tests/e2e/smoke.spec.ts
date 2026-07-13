@@ -123,6 +123,94 @@ test("profiles are reachable from the leaderboard and editable from the account 
   await page.waitForURL(/\/u\/alex/);
   await expect(page.getByText("@alex")).toBeVisible();
   await expect(page.getByText(bio)).toBeVisible();
+
+  // the achievements section links to the full list (all 8 defs, earned or locked)
+  await page.getByRole("link", { name: /All achievements/i }).click();
+  await page.waitForURL(/\/u\/alex\/achievements/);
+  await expect(page.getByRole("heading", { name: "Achievements" })).toBeVisible();
+  await expect(page.getByText(/of 8 earned/i)).toBeVisible();
+  await expect(page.getByText("First Blood")).toBeVisible();
+  await expect(page.getByText("Centurion")).toBeVisible();
+});
+
+test("gems show in the nav balance dropdown", async ({ page }) => {
+  await signIn(page, memberEmail);
+  // the balance chip is a dropdown; the gems row links to the store
+  await page.getByTitle(/Your balances|allowance is in/i).click();
+  const gemsRow = page.getByRole("link", { name: /Gems/i });
+  await expect(gemsRow).toBeVisible();
+  await gemsRow.click();
+  await page.waitForURL(/store/);
+  await expect(page.getByRole("heading", { name: "Store" })).toBeVisible();
+});
+
+test("store: buy a badge, equip it in the locker, see it on the leaderboard", async ({ page }) => {
+  await signIn(page, memberEmail);
+
+  // buy the Dice badge unless a previous run already owns it (one per user)
+  await page.goto("/store");
+  const diceCard = page
+    .locator("div.rounded-xl", { has: page.getByText("Dice", { exact: true }) })
+    .first();
+  const buyButton = diceCard.getByRole("button", { name: /Buy · 75/ });
+  if (await buyButton.isVisible().catch(() => false)) {
+    await buyButton.click();
+    await expect(page.getByText(/It's yours/i)).toBeVisible();
+  } else {
+    await expect(diceCard.getByRole("link", { name: /Owned/i })).toBeVisible();
+  }
+
+  // equip it from the account locker (skip if already equipped)
+  await page.goto("/account");
+  const diceTile = page
+    .locator("div.rounded-xl", { has: page.getByText("Dice", { exact: true }) })
+    .first();
+  const equip = diceTile.getByRole("button", { name: "Equip", exact: true });
+  if (await equip.isVisible().catch(() => false)) {
+    await equip.click();
+    await expect(page.getByText(/Equipped\./i)).toBeVisible();
+  } else {
+    await expect(diceTile.getByRole("button", { name: "Unequip" })).toBeVisible();
+  }
+
+  // the badge glyph renders next to Alex's name on the leaderboard
+  await page.goto("/leaderboard");
+  await expect(page.getByLabel(/Alex's badge/).first()).toBeVisible();
+  await expect(page.getByLabel(/Alex's badge/).first()).toHaveText("🎲");
+});
+
+test("admin authors a frame, grants it, and the member can equip it", async ({ page, browser, baseURL }) => {
+  const stamp = Date.now();
+  const itemName = `E2E Frame ${stamp}`;
+
+  // admin creates the item with the structured editor (live preview visible)
+  await signIn(page, adminEmail);
+  await page.goto("/admin/items/new");
+  await page.getByLabel("Slug").fill(`e2e-frame-${stamp}`);
+  await page.getByLabel("Name", { exact: true }).fill(itemName);
+  await page.getByLabel("Description").fill("Created by the smoke suite.");
+  await expect(page.getByText("Live preview")).toBeVisible();
+  await page.getByRole("button", { name: "Create item" }).click();
+  await page.waitForURL(/admin\/items\/[a-z0-9]+/);
+  await expect(page.getByRole("heading", { name: itemName })).toBeVisible();
+
+  // grant it to Alex from the item page
+  await page.getByLabel(/Grant to a member/i).selectOption({ label: "Alex" });
+  await page.getByRole("button", { name: "Grant" }).click();
+  await expect(page.getByText(/it's in their locker/i)).toBeVisible();
+
+  // Alex equips it from the account locker
+  const context = await browser.newContext({ baseURL: baseURL! });
+  const memberPage = await context.newPage();
+  await signIn(memberPage, memberEmail);
+  await memberPage.goto("/account");
+  const tile = memberPage
+    .locator("div.rounded-xl", { has: memberPage.getByText(itemName, { exact: true }) })
+    .first();
+  await tile.getByRole("button", { name: "Equip", exact: true }).click();
+  await expect(memberPage.getByText(/Equipped\./i)).toBeVisible();
+  await expect(tile.getByRole("button", { name: "Unequip" })).toBeVisible();
+  await context.close();
 });
 
 test("leagues: create one, start a season, and a friend joins by invite code", async ({

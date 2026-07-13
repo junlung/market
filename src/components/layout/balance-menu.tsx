@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Coins, Crown, Moon } from "lucide-react";
+import { ChevronDown, Coins, Crown, Gem, Moon } from "lucide-react";
 import { formatPoints } from "@/lib/format";
 
 export type LeagueStack = {
@@ -15,19 +15,22 @@ export type LeagueStack = {
 };
 
 /**
- * The top-nav balance chip. With no leagues it stays what it always was — a
- * link to /account. With leagues it opens a dropdown of every stack you hold:
- * Global first, then one row per league (dormant = no season running, so no
- * stack to spend).
+ * The top-nav balance chip: a dropdown of every stack you hold — Global
+ * first, then one row per league (dormant = no season running, so no stack
+ * to spend) — plus your gems (the persistent cosmetic currency, styled
+ * distinctly so it never reads as spendable points). The chip face stays
+ * points-only; points are the daily currency.
  */
 export function BalanceMenu({
   globalBalance,
   allowanceLanded,
   leagues,
+  gems,
 }: {
   globalBalance: number;
   allowanceLanded: boolean;
   leagues: LeagueStack[];
+  gems: number;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -48,20 +51,6 @@ export function BalanceMenu({
   const allowanceDot = allowanceLanded ? (
     <span className="size-1.5 rounded-full bg-yes" aria-label="Weekly allowance received" />
   ) : null;
-
-  if (leagues.length === 0) {
-    return (
-      <Link
-        href="/account"
-        title={allowanceLanded ? "This week's allowance is in" : "Balance"}
-        className={chipClass}
-      >
-        <Coins className="size-4 text-warn" aria-hidden />
-        {formatPoints(globalBalance)}
-        {allowanceDot}
-      </Link>
-    );
-  }
 
   const rowClass =
     "flex items-center justify-between gap-3 rounded-md px-3 py-2 text-sm transition-colors hover:bg-surface-2";
@@ -121,6 +110,20 @@ export function BalanceMenu({
               </span>
             </Link>
           ))}
+          <div className="mt-1.5 border-t border-border pt-1.5">
+            <Link href="/store" className={rowClass} onClick={() => setOpen(false)}>
+              <span className="flex min-w-0 flex-col">
+                <span className="flex items-center gap-2 font-medium">
+                  <Gem className="size-4 shrink-0 text-gem" aria-hidden />
+                  <span className="truncate">Gems</span>
+                </span>
+                <span className="pl-6 text-[11px] text-faint">spend in the store</span>
+              </span>
+              <span className="shrink-0 font-semibold tabular-nums text-gem">
+                {formatPoints(gems)}
+              </span>
+            </Link>
+          </div>
         </div>
       ) : null}
     </div>

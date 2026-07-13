@@ -1,12 +1,15 @@
 import clsx from "clsx";
 import { Crown, Trophy } from "lucide-react";
+import { BadgeGlyph, TitleLine } from "@/components/members/cosmetic-renderers";
+import { MemberAvatar } from "@/components/members/member-avatar";
 import { ProfileLink } from "@/components/members/profile-link";
-import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LocalTime } from "@/components/ui/local-time";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs } from "@/components/ui/tabs";
+import { NO_COSMETICS, type EquippedCosmetics } from "@/lib/cosmetics";
 import { formatPoints, formatSignedPoints } from "@/lib/format";
+import { getEquippedCosmetics } from "@/lib/server/item-service";
 import { getLeaderboard } from "@/lib/server/market-service";
 import {
   getGlobalSeasonLeaderboard,
@@ -21,45 +24,58 @@ function scoreTone(value: number) {
   return value > 0 ? "text-yes" : value < 0 ? "text-no" : "text-muted";
 }
 
+type CosmeticsMap = Map<string, EquippedCosmetics>;
+
+function cosmeticsFor(map: CosmeticsMap, userId: string) {
+  return map.get(userId) ?? NO_COSMETICS;
+}
+
 function Podium({
   entries,
   viewerId,
+  cosmetics,
   score,
   subline,
 }: {
   entries: Array<{ userId: string; name: string; username: string; rank: number }>;
   viewerId: string;
+  cosmetics: CosmeticsMap;
   score: (entry: { userId: string }) => number;
   subline: (entry: { userId: string; rank: number }) => React.ReactNode;
 }) {
   return (
     <div className="grid gap-3 sm:grid-cols-3">
-      {entries.map((entry, index) => (
-        <div
-          key={entry.userId}
-          className={clsx(
-            "flex flex-col items-center rounded-xl border bg-surface p-5 text-center",
-            index === 0 ? "border-warn/40 sm:order-2 sm:-mt-2" : "border-border",
-            index === 1 && "sm:order-1",
-            index === 2 && "sm:order-3",
-          )}
-        >
-          <span className="text-2xl">{MEDALS[entry.rank - 1] ?? MEDALS[index]}</span>
-          <ProfileLink username={entry.username} className="flex flex-col items-center">
-            <Avatar name={entry.name} size="lg" className="mt-2" />
-            <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold">
-              {entry.name}
-              {entry.userId === viewerId ? (
-                <span className="text-xs font-normal text-faint">(you)</span>
-              ) : null}
+      {entries.map((entry, index) => {
+        const look = cosmeticsFor(cosmetics, entry.userId);
+        return (
+          <div
+            key={entry.userId}
+            className={clsx(
+              "flex flex-col items-center rounded-xl border bg-surface p-5 text-center",
+              index === 0 ? "border-warn/40 sm:order-2 sm:-mt-2" : "border-border",
+              index === 1 && "sm:order-1",
+              index === 2 && "sm:order-3",
+            )}
+          >
+            <span className="text-2xl">{MEDALS[entry.rank - 1] ?? MEDALS[index]}</span>
+            <ProfileLink username={entry.username} className="flex flex-col items-center">
+              <MemberAvatar name={entry.name} size="lg" frame={look.frame} className="mt-2" />
+              <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold">
+                {entry.name}
+                <BadgeGlyph badge={look.badge} label={`${entry.name}'s badge`} />
+                {entry.userId === viewerId ? (
+                  <span className="text-xs font-normal text-faint">(you)</span>
+                ) : null}
+              </p>
+            </ProfileLink>
+            <TitleLine title={look.title} />
+            <p className={clsx("mt-1 text-xl font-bold tabular-nums", scoreTone(score(entry)))}>
+              {formatSignedPoints(score(entry))}
             </p>
-          </ProfileLink>
-          <p className={clsx("mt-1 text-xl font-bold tabular-nums", scoreTone(score(entry)))}>
-            {formatSignedPoints(score(entry))}
-          </p>
-          <p className="mt-0.5 text-xs text-muted tabular-nums">{subline(entry)}</p>
-        </div>
-      ))}
+            <p className="mt-0.5 text-xs text-muted tabular-nums">{subline(entry)}</p>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -70,6 +86,7 @@ function SeasonBoard({
   standings,
   spectators,
   viewerId,
+  cosmetics,
   pastSeasons,
 }: {
   seasonName: string;
@@ -77,6 +94,7 @@ function SeasonBoard({
   standings: SeasonStandingRow[];
   spectators: Array<{ userId: string; name: string; username: string }>;
   viewerId: string;
+  cosmetics: CosmeticsMap;
   pastSeasons: Array<{ id: string; name: string; champions: SeasonStandingRow[] }>;
 }) {
   const podium = standings.slice(0, 3);
@@ -100,6 +118,7 @@ function SeasonBoard({
           <Podium
             entries={podium}
             viewerId={viewerId}
+            cosmetics={cosmetics}
             score={(entry) => standings.find((row) => row.userId === entry.userId)?.score ?? 0}
             subline={(entry) => {
               const row = standings.find((standing) => standing.userId === entry.userId)!;
@@ -138,9 +157,17 @@ function SeasonBoard({
                     <td className="px-4 py-2.5">
                       <span className="flex items-center gap-2 font-medium">
                         <ProfileLink username={entry.username} className="flex items-center gap-2">
-                          <Avatar name={entry.name} size="xs" />
+                          <MemberAvatar
+                            name={entry.name}
+                            size="xs"
+                            frame={cosmeticsFor(cosmetics, entry.userId).frame}
+                          />
                           {entry.name}
                         </ProfileLink>
+                        <BadgeGlyph
+                          badge={cosmeticsFor(cosmetics, entry.userId).badge}
+                          label={`${entry.name}'s badge`}
+                        />
                         {entry.userId === viewerId ? (
                           <span className="text-xs text-faint">(you)</span>
                         ) : null}
@@ -172,9 +199,17 @@ function SeasonBoard({
                     <td className="px-4 py-2.5">
                       <span className="flex items-center gap-2 font-medium">
                         <ProfileLink username={entry.username} className="flex items-center gap-2">
-                          <Avatar name={entry.name} size="xs" />
+                          <MemberAvatar
+                            name={entry.name}
+                            size="xs"
+                            frame={cosmeticsFor(cosmetics, entry.userId).frame}
+                          />
                           {entry.name}
                         </ProfileLink>
+                        <BadgeGlyph
+                          badge={cosmeticsFor(cosmetics, entry.userId).badge}
+                          label={`${entry.name}'s badge`}
+                        />
                         {entry.userId === viewerId ? (
                           <span className="text-xs text-faint">(you)</span>
                         ) : null}
@@ -209,6 +244,10 @@ function SeasonBoard({
                       <ProfileLink username={champion.username} className="hover:underline">
                         {champion.name}
                       </ProfileLink>{" "}
+                      <BadgeGlyph
+                        badge={cosmeticsFor(cosmetics, champion.userId).badge}
+                        label={`${champion.name}'s badge`}
+                      />{" "}
                       <span className={clsx("tabular-nums", scoreTone(champion.score))}>
                         {formatSignedPoints(champion.score)}
                       </span>
@@ -233,11 +272,13 @@ function SeasonBoard({
 function AllTimeBoard({
   ranked,
   viewerId,
+  cosmetics,
 }: {
   ranked: Array<
     Awaited<ReturnType<typeof getLeaderboard>>[number] & { rank: number }
   >;
   viewerId: string;
+  cosmetics: CosmeticsMap;
 }) {
   const podium = ranked.slice(0, 3);
 
@@ -246,6 +287,7 @@ function AllTimeBoard({
       <Podium
         entries={podium}
         viewerId={viewerId}
+        cosmetics={cosmetics}
         score={(entry) => ranked.find((row) => row.userId === entry.userId)?.netProfit ?? 0}
         subline={(entry) => {
           const row = ranked.find((r) => r.userId === entry.userId)!;
@@ -285,9 +327,17 @@ function AllTimeBoard({
                 <td className="px-4 py-2.5">
                   <span className="flex items-center gap-2 font-medium">
                     <ProfileLink username={entry.username} className="flex items-center gap-2">
-                      <Avatar name={entry.name} size="xs" />
+                      <MemberAvatar
+                        name={entry.name}
+                        size="xs"
+                        frame={cosmeticsFor(cosmetics, entry.userId).frame}
+                      />
                       {entry.name}
                     </ProfileLink>
+                    <BadgeGlyph
+                      badge={cosmeticsFor(cosmetics, entry.userId).badge}
+                      label={`${entry.name}'s badge`}
+                    />
                     {entry.userId === viewerId ? (
                       <span className="text-xs text-faint">(you)</span>
                     ) : null}
@@ -368,6 +418,14 @@ export default async function LeaderboardPage() {
     champions: parseStandings(finalized.standings).filter((row) => row.rank === 1),
   }));
 
+  // one page-level cosmetics batch over every identity this page renders —
+  // frozen standings hold no styles, so champions are always fetched live
+  const cosmetics = await getEquippedCosmetics([
+    ...standings.map((row) => row.userId),
+    ...allTime.map((row) => row.userId),
+    ...pastSeasons.flatMap((past) => past.champions.map((row) => row.userId)),
+  ]);
+
   return (
     <section className="space-y-5">
       <PageHeader
@@ -392,10 +450,13 @@ export default async function LeaderboardPage() {
                 standings={standings}
                 spectators={spectators}
                 viewerId={session.user.id}
+                cosmetics={cosmetics}
                 pastSeasons={pastSeasons}
               />
             ),
-            "all-time": <AllTimeBoard ranked={rankedAllTime} viewerId={session.user.id} />,
+            "all-time": (
+              <AllTimeBoard ranked={rankedAllTime} viewerId={session.user.id} cosmetics={cosmetics} />
+            ),
           }}
         />
       )}

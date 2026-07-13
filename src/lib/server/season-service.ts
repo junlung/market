@@ -12,6 +12,7 @@ import {
 } from "@prisma/client";
 import { getMonthSeasonName, getMonthWindow, rankByScore } from "@/lib/leagues";
 import { prisma } from "@/lib/prisma";
+import { grantPlacementGems } from "@/lib/server/gem-service";
 import { grantItem } from "@/lib/server/item-service";
 import {
   ensureGlobalLeague,
@@ -398,6 +399,20 @@ export async function finalizeDueSeasons(now = new Date()): Promise<FinalizedSea
           },
           grantKey: `season:${season.id}:user:${row.userId}`,
         });
+
+        // placement gems ride the same crash-safe ordering as trophies:
+        // granted before the status flip, idempotent per (user, season).
+        // Global League only — custom-league placements never mint gems
+        // (decision #1: owner-set stacks would make them farmable).
+        if (season.league.isGlobal) {
+          await grantPlacementGems({
+            userId: row.userId,
+            seasonId: season.id,
+            rank: row.rank,
+            seasonName: season.name,
+            leagueName: season.league.name,
+          });
+        }
       }
     }
 

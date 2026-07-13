@@ -1,8 +1,10 @@
 import clsx from "clsx";
+import { BadgeGlyph } from "@/components/members/cosmetic-renderers";
+import { MemberAvatar } from "@/components/members/member-avatar";
 import { ProfileLink } from "@/components/members/profile-link";
-import { Avatar } from "@/components/ui/avatar";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { OutcomeDot } from "@/components/markets/outcome-dot";
+import type { EquippedCosmetics } from "@/lib/cosmetics";
 import { formatPercent0, formatPoints, formatSignedPoints } from "@/lib/format";
 import { outcomeDisplayLabel } from "@/lib/outcome-colors";
 
@@ -17,6 +19,7 @@ export type PositionRow = {
   userId: string;
   name: string;
   username: string;
+  cosmetics?: EquippedCosmetics | null;
   stakes: Array<{ outcomeId: string; amount: number }>;
   staked: number;
   potShare: number;
@@ -65,9 +68,10 @@ export function PositionsTable({
               <td className="py-2.5 pr-3">
                 <span className="flex items-center gap-2 font-medium">
                   <ProfileLink username={row.username} className="flex items-center gap-2">
-                    <Avatar name={row.name} size="xs" />
+                    <MemberAvatar name={row.name} size="xs" frame={row.cosmetics?.frame} />
                     {row.name}
                   </ProfileLink>
+                  <BadgeGlyph badge={row.cosmetics?.badge} label={`${row.name}'s badge`} />
                   {row.userId === viewerId ? <span className="text-xs text-faint">(you)</span> : null}
                 </span>
               </td>

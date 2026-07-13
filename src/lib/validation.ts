@@ -1,3 +1,4 @@
+import { ItemKind } from "@prisma/client";
 import { z } from "zod";
 import { appConfig } from "@/lib/config";
 import { graphemeCount } from "@/lib/outcome-colors";
@@ -193,4 +194,36 @@ export const setLeagueRoleSchema = z.object({
   leagueId: z.string().cuid(),
   userId: z.string().cuid(),
   role: z.enum(["MOD", "MEMBER"]),
+});
+
+// --- Phase 3b: admin item authoring ---
+
+export const itemSlugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3, "Slug needs at least 3 characters.")
+  .max(40, "Slug maxes out at 40 characters.")
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Lowercase letters, numbers, and hyphens only — no leading or trailing hyphen.");
+
+export const itemFormSchema = z.object({
+  slug: itemSlugSchema,
+  name: z.string().trim().min(2, "Name needs at least 2 characters.").max(40),
+  description: z.string().trim().min(1, "Give it a one-liner.").max(200),
+  kind: z.nativeEnum(ItemKind),
+  // blank = not purchasable (earned only)
+  storeCost: z
+    .string()
+    .trim()
+    .transform((value) => (value === "" ? null : value))
+    .pipe(z.coerce.number().int("Whole gems only.").min(1).max(1_000_000).nullable()),
+  active: z.coerce.boolean(),
+  // the compiled style Json as a string; the action re-validates it against
+  // the kind's cosmetics schema so unrenderable style can never persist
+  style: z.string().trim().min(2, "Style is required."),
+});
+
+export const grantItemAdminSchema = z.object({
+  itemId: z.string().cuid(),
+  userId: z.string().cuid(),
 });
