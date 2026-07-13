@@ -34,6 +34,9 @@ export type AchievementDef = {
 /** Gems for season placements 1st/2nd/3rd, granted at finalization. */
 export const SEASON_PLACEMENT_GEMS = [100, 50, 25] as const;
 
+/** One-time gem starting allowance — at approval and in the launch backfill. */
+export const GEM_STARTING_GRANT = 1000;
+
 /** How many achievements a member can highlight on their profile. */
 export const SHOWCASE_LIMIT = 3;
 

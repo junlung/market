@@ -352,6 +352,11 @@ Amendments while building (2026-07-12):
   custom leagues).
 - **Demo gems** (500, `ADMIN_ADJUST`) seeded for the demo members so the store works out of the
   box and in e2e.
+- **Gem starting allowance** (follow-up, same day — Jon): every member gets a one-time
+  `GEM_STARTING_GRANT` (1000, tunable in `src/lib/achievements.ts`) — existing members via the
+  launch backfill, new members at account approval. `STARTING_GRANT` ledger type, idempotent
+  forever via a partial unique on (userId) (migrations `20260712170000/-170100`, enum-add and
+  index split per the Postgres same-transaction rule).
 - **Achievement discovery** (follow-up, same day — Jon: achievements need a browsable surface):
   profile gets an Achievements section showing up to `SHOWCASE_LIMIT` (3) highlights the member
   picks (star toggles on their own `/u/[username]/achievements` page; falls back to most

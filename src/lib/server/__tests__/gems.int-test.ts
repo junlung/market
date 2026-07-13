@@ -32,8 +32,10 @@ import {
   backfillAchievements,
   backfillPlacements,
   backfillRakeConversions,
+  backfillStartingGrants,
 } from "@/lib/server/backfill-gems";
 import { adjustGems, getGemBalance } from "@/lib/server/gem-service";
+import { approveUser } from "@/lib/server/member-service";
 import {
   equipItem,
   getEquippedCosmetics,
@@ -660,6 +662,39 @@ describe.skipIf(!enabled)("gems integration", () => {
     // clearing works
     await setShowcasedAchievements(winner.id, []);
     expect((await getShowcasedAchievements(winner.id))[0].showcased).toBe(false);
+  });
+
+  it("grants the 1000-gem starting allowance at approval and via backfill, once ever", async () => {
+    const admin = await createUser(0, UserRole.ADMIN);
+    const existing = await createUser(0); // ACTIVE, predates the allowance
+
+    // a new signup approved after launch gets it at approval
+    counter += 1;
+    const applicant = await prisma.user.create({
+      data: {
+        email: `gem-applicant-${Date.now()}-${counter}@test.local`,
+        name: `GemApplicant${counter}`,
+        username: `gem-applicant-${Date.now() % 1_000_000}-${counter}`,
+        passwordHash: "not-a-real-hash",
+        status: UserStatus.PENDING,
+      },
+    });
+    await approveUser(applicant.id, admin.id);
+    expect(await getGemBalance(applicant.id)).toBe(1000);
+
+    // existing members get theirs from the backfill — approved users don't double
+    const first = await backfillStartingGrants();
+    expect(first.granted).toBeGreaterThanOrEqual(2); // admin + existing, not applicant
+    expect(await getGemBalance(existing.id)).toBe(1000);
+    expect(await getGemBalance(applicant.id)).toBe(1000);
+    expect(
+      await prisma.gemLedgerEntry.count({
+        where: { userId: applicant.id, type: GemLedgerEntryType.STARTING_GRANT },
+      }),
+    ).toBe(1);
+
+    // wholly idempotent on re-run
+    expect((await backfillStartingGrants()).granted).toBe(0);
   });
 
   it("backfills historical markets and seasons idempotently, never doubling live grants", async () => {

@@ -53,6 +53,10 @@ enum LedgerEntryType {
 // League rake/placements/achievements, spent in the store. Never interacts
 // with the points economy and never resets.
 enum GemLedgerEntryType {
+  // one-time starting allowance, idempotent per user via a partial unique
+  // (SQL-only — see partial-indexes.sql); granted at approval and by the
+  // launch backfill
+  STARTING_GRANT
   RAKE_CONVERSION
   ACHIEVEMENT
   SEASON_PLACEMENT

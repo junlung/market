@@ -1,5 +1,5 @@
 import { GemLedgerEntryType } from "@prisma/client";
-import { SEASON_PLACEMENT_GEMS } from "@/lib/achievements";
+import { GEM_STARTING_GRANT, SEASON_PLACEMENT_GEMS } from "@/lib/achievements";
 import { buildGemBreakdown, type GemBreakdown } from "@/lib/gems";
 import { prisma } from "@/lib/prisma";
 
@@ -70,6 +70,32 @@ export async function grantPlacementGems(input: {
       error && typeof error === "object" && "code" in error && error.code === "P2002";
     if (isUniqueViolation) {
       return null; // already granted (cron re-run or backfill overlap)
+    }
+    throw error;
+  }
+}
+
+/**
+ * The one-time gem starting allowance, granted at account approval and by the
+ * launch backfill. Idempotent forever via the partial unique on (userId)
+ * WHERE STARTING_GRANT — reject/approve cycles and backfill re-runs no-op.
+ * Returns null when the user already has theirs.
+ */
+export async function grantStartingGems(userId: string) {
+  try {
+    return await prisma.gemLedgerEntry.create({
+      data: {
+        userId,
+        type: GemLedgerEntryType.STARTING_GRANT,
+        amount: GEM_STARTING_GRANT,
+        description: "Starting gems",
+      },
+    });
+  } catch (error) {
+    const isUniqueViolation =
+      error && typeof error === "object" && "code" in error && error.code === "P2002";
+    if (isUniqueViolation) {
+      return null;
     }
     throw error;
   }

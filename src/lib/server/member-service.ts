@@ -1,6 +1,7 @@
 import { AppLogEventType, AppLogLevel, LedgerEntryType, UserStatus } from "@prisma/client";
 import { appConfig } from "@/lib/config";
 import { prisma } from "@/lib/prisma";
+import { grantStartingGems } from "@/lib/server/gem-service";
 import { ensureGlobalLeague, ensureLeagueMembership } from "@/lib/server/league-service";
 
 function logMembershipAction(message: string, actorId: string) {
@@ -59,6 +60,10 @@ export async function approveUser(userId: string, adminId: string, note?: string
   // approval is when a member joins the Global League (idempotent — the
   // migration backfill or a prior reject/approve cycle may have enrolled them)
   await ensureLeagueMembership(globalLeague.id, userId);
+
+  // the gem starting allowance rides approval too — DB-level idempotent, so
+  // reject/approve cycles can't double-grant
+  await grantStartingGems(userId);
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   await logMembershipAction(`Approved member: ${user.name} (${user.email})`, adminId);

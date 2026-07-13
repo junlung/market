@@ -87,6 +87,7 @@ export default async function AccountPage() {
             <p className="mt-1 text-2xl font-bold tabular-nums text-gem">{formatPoints(gems)}</p>
             <dl className="mt-2 space-y-1 text-xs text-muted">
               {[
+                { label: "Starting gems", amount: gemBreakdown.starting },
                 { label: "Rake conversions", amount: gemBreakdown.rakeEarned },
                 { label: "Achievements", amount: gemBreakdown.achievements },
                 { label: "Season placements", amount: gemBreakdown.placements },

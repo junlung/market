@@ -107,6 +107,7 @@ describe("computeRakeGemSplit", () => {
 describe("gem breakdown", () => {
   it("categorizes and reconciles a mixed ledger", () => {
     const entries = [
+      { type: GemLedgerEntryType.STARTING_GRANT, amount: 1000 },
       { type: GemLedgerEntryType.RAKE_CONVERSION, amount: 40 },
       { type: GemLedgerEntryType.ACHIEVEMENT, amount: 25 },
       { type: GemLedgerEntryType.SEASON_PLACEMENT, amount: 100 },
@@ -116,12 +117,13 @@ describe("gem breakdown", () => {
 
     const breakdown = buildGemBreakdown(entries);
     expect(breakdown).toEqual({
+      starting: 1000,
       rakeEarned: 40,
       achievements: 25,
       placements: 100,
       adjustments: -5,
       spent: 75,
     });
-    expect(reconcileGemBalanceFromBreakdown(breakdown)).toBe(85);
+    expect(reconcileGemBalanceFromBreakdown(breakdown)).toBe(1085);
   });
 });

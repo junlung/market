@@ -60,6 +60,7 @@ export function checkGemConservation(split: RakeGemSplit) {
 }
 
 export type GemBreakdown = {
+  starting: number;
   rakeEarned: number;
   achievements: number;
   placements: number;
@@ -68,6 +69,7 @@ export type GemBreakdown = {
 };
 
 const EMPTY_BREAKDOWN: GemBreakdown = {
+  starting: 0,
   rakeEarned: 0,
   achievements: 0,
   placements: 0,
@@ -77,6 +79,8 @@ const EMPTY_BREAKDOWN: GemBreakdown = {
 
 export function categorizeGemAmount(type: GemLedgerEntryType, amount: number): GemBreakdown {
   switch (type) {
+    case GemLedgerEntryType.STARTING_GRANT:
+      return { ...EMPTY_BREAKDOWN, starting: amount };
     case GemLedgerEntryType.RAKE_CONVERSION:
       return { ...EMPTY_BREAKDOWN, rakeEarned: amount };
     case GemLedgerEntryType.ACHIEVEMENT:
@@ -94,6 +98,7 @@ export function buildGemBreakdown(entries: Array<{ type: GemLedgerEntryType; amo
   return entries.reduce<GemBreakdown>((totals, entry) => {
     const contribution = categorizeGemAmount(entry.type, entry.amount);
     return {
+      starting: totals.starting + contribution.starting,
       rakeEarned: totals.rakeEarned + contribution.rakeEarned,
       achievements: totals.achievements + contribution.achievements,
       placements: totals.placements + contribution.placements,
@@ -105,6 +110,7 @@ export function buildGemBreakdown(entries: Array<{ type: GemLedgerEntryType; amo
 
 export function reconcileGemBalanceFromBreakdown(breakdown: GemBreakdown) {
   const balance =
+    breakdown.starting +
     breakdown.rakeEarned +
     breakdown.achievements +
     breakdown.placements +

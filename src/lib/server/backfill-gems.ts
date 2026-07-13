@@ -7,7 +7,8 @@
  * [userId, achievementKey], badge grantKeys), so live + backfill can never
  * double-grant. Invoked by `npm run backfill-gems` (scripts/backfill-gems.ts).
  */
-import { GemLedgerEntryType, MarketStatus, SeasonStatus } from "@prisma/client";
+import { GemLedgerEntryType, MarketStatus, SeasonStatus, UserStatus } from "@prisma/client";
+import { GEM_STARTING_GRANT } from "@/lib/achievements";
 import { computeRakeGemSplit } from "@/lib/gems";
 import { computeSettlement } from "@/lib/parimutuel";
 import { prisma } from "@/lib/prisma";
@@ -15,7 +16,7 @@ import {
   ensureAchievementItems,
   evaluateUserAchievements,
 } from "@/lib/server/achievement-service";
-import { grantPlacementGems } from "@/lib/server/gem-service";
+import { grantPlacementGems, grantStartingGems } from "@/lib/server/gem-service";
 import { ensureGlobalLeague } from "@/lib/server/league-service";
 
 export async function backfillRakeConversions(globalLeagueId: string) {
@@ -155,8 +156,31 @@ export async function backfillAchievements(globalLeagueId: string) {
   return { participants: participants.length, usersGranted, grants };
 }
 
+/** The one-time 1000-gem starting allowance for every existing ACTIVE member. */
+export async function backfillStartingGrants() {
+  const users = await prisma.user.findMany({
+    where: { status: UserStatus.ACTIVE },
+    select: { id: true },
+  });
+
+  let granted = 0;
+  for (const user of users) {
+    if (await grantStartingGems(user.id)) {
+      granted += 1;
+    }
+  }
+
+  return { users: users.length, granted };
+}
+
 export async function runGemBackfill(log: (message: string) => void = console.log) {
   const globalLeague = await ensureGlobalLeague();
+
+  log("Granting starting allowances…");
+  const starting = await backfillStartingGrants();
+  log(
+    `  ${starting.users} active members: ${starting.granted} new starting grants of ${GEM_STARTING_GRANT} gems`,
+  );
 
   log("Backfilling rake conversions…");
   const rake = await backfillRakeConversions(globalLeague.id);
@@ -177,5 +201,5 @@ export async function runGemBackfill(log: (message: string) => void = console.lo
   );
 
   log("Done. Safe to re-run; a clean re-run reports 0 new grants everywhere.");
-  return { rake, placements, achievements };
+  return { starting, rake, placements, achievements };
 }

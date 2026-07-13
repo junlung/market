@@ -20,3 +20,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS "UserItem_purchase_key" ON "UserItem"("userId"
 
 -- at most one equipped item per slot (20260712150000_gems_cosmetics)
 CREATE UNIQUE INDEX IF NOT EXISTS "UserItem_equipped_slot_key" ON "UserItem"("userId", "equippedSlot") WHERE "equippedSlot" IS NOT NULL;
+
+-- one gem starting grant per user, ever (20260712170100_gem_starting_grant_index)
+CREATE UNIQUE INDEX IF NOT EXISTS "GemLedgerEntry_startingGrant_key" ON "GemLedgerEntry"("userId") WHERE "type" = 'STARTING_GRANT';
