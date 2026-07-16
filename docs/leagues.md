@@ -1,0 +1,99 @@
+# Leagues and seasons
+
+Everything competitive is league-scoped: markets, balances, allowances, leaderboards,
+and the propose/approve flow. There are two kinds of league, unified by one data model
+(`League`, `LeagueMembership`, `Season` in `prisma/schema.prisma`).
+
+## The Global League
+
+Exactly one league has `isGlobal = true`, enforced by a partial unique index. It is the
+default competitive surface: every member auto-joins at account approval, its markets
+live at the app's root routes (`/markets`, `/leaderboard`, `/dashboard`), and its
+economy follows the app-level config (`appConfig`), not the league settings columns.
+
+`ensureGlobalLeague` (`src/lib/server/league-service.ts`) creates the row on first
+touch — fresh databases and test environments bootstrap themselves; the lookup is
+race-safe via the unique slug and is never cached at module level.
+
+- **Balance policy `PERSISTENT`:** balances accumulate forever; seasons are leaderboard
+  windows, not economy resets.
+- **Seasons are UTC calendar months** (`getMonthWindow`, `src/lib/leagues.ts` —
+  `endsAt` exclusive; named like "July 2026"). The current season opens lazily on
+  first read (`ensureCurrentSeason`, race-safe via unique `[leagueId, startsAt]`), and
+  the cron finalizes an ended month and rolls the next one automatically.
+
+## Custom leagues
+
+Any member can create one. Custom leagues are invite-only and route-scoped under
+`/l/[slug]/…` (overview, markets, leaderboard, settings).
+
+- **Balance policy `FRESH_PER_SEASON`:** every member gets the same starting stack per
+  season (`SEASON_STACK` ledger entry, idempotent per `[userId, seasonId]` partial
+  unique). Mid-season joiners get the current season's stack immediately, once.
+- **Economy settings** (`startingStack`, `weeklyAllowance`, `defaultRakeBps`,
+  `defaultMaxStakePerUser`) are set at creation, editable until the first season
+  starts, then locked for the league's lifetime.
+- **Invites:** one rotating 8-character join code per league (ambiguity-free alphabet;
+  helpers in `src/lib/leagues.ts`). Owners/mods regenerate the code to revoke access;
+  joining happens on the `/leagues` page. There is no league browser — membership
+  spreads by code only.
+- **Roles:** `OWNER` / `MOD` / `MEMBER` per league. Owners promote/demote mods; owners
+  and mods operate markets and seasons. App admins pass every league-role check
+  (`requireLeagueRole`) — the operational safety valve.
+- **Seasons are owner-set windows**, one ACTIVE or UPCOMING at a time. Presets cover
+  week/month/weekend shapes; a future start creates an UPCOMING season the cron
+  activates (granting stacks). Ended seasons finalize automatically, but **the next
+  season never auto-opens** — the owner starts it explicitly. A one-shot league (a
+  weekend trip) is simply a league whose single season is never followed by another.
+
+Points never cross leagues: bets require membership in the market's league, and every
+balance check scopes to that league (and season where fresh stacks apply). A dormant
+custom league — no ACTIVE season — reads a 0 balance for everyone.
+
+## Standings
+
+`getSeasonStandings` (`src/lib/server/season-service.ts`) computes standings on the fly
+from the ledger; nothing is denormalized while a season runs.
+
+- **Score** = Σ(`BET_PLACED` + `MARKET_PAYOUT` + `MARKET_REFUND`) per user over RESOLVED
+  markets — realized P&L. Open positions never move a rank; canceled markets net to 0.
+- **Attribution differs by league kind.** Global seasons count markets **resolved
+  within the month window** (`resolvedAt`) — Global markets aren't season-pinned, and
+  a bet and its payout straddling a month boundary land in the resolution month.
+  Custom seasons count markets **pinned to the season** (`market.seasonId`) — a
+  commissioner settling the weekend's last market on Monday still counts it.
+- **Ranked = participants only:** ACTIVE users with ≥ 1 settled market in the window.
+  Non-participants still appear, unranked at score 0, so the full roster stays
+  visible. Ranking uses competition style — ties share a rank and skip the next
+  (1, 1, 3; `rankByScore`, `src/lib/leagues.ts`).
+
+## Finalization
+
+`finalizeDueSeasons` (`src/lib/server/season-service.ts`) runs from the daily cron and
+is idempotent end to end:
+
+1. **Custom seasons wait for their markets:** a season with OPEN/CLOSED season-pinned
+   markets is skipped (standings would be incomplete) and retried the next day; the
+   owner sees the unsettled markets in a needs-action list. Global seasons never wait —
+   a late resolution simply counts toward the next month.
+2. **Trophies before the status flip:** placement items are granted first, so a
+   mid-run crash re-runs cleanly. Trophy grants are idempotent via
+   `grantKey = season:{seasonId}:user:{userId}`.
+3. Season top-3 receive the three reusable trophy items (`season-champion`,
+   `season-runner-up`, `season-third`) with provenance (league, season, placement,
+   score) rendered in the profile trophy case. Ties grant duplicate trophies at the
+   tied rank. **Global seasons also grant placement gems** (100/50/25, idempotent per
+   `[userId, seasonId]`); custom seasons grant trophies only — custom activity never
+   mints gems (`docs/economy.md`).
+4. **The flip is a guarded `updateMany`** (`WHERE status = ACTIVE`), so concurrent
+   cron runs cannot double-finalize. Final standings freeze as JSON on the `Season`
+   row for display and audit; live standings are always recomputed from the ledger.
+
+## The cron
+
+`vercel.ts` schedules `GET /api/cron/finalize-seasons` daily at 00:05 UTC. The route
+rejects any request without `Authorization: Bearer ${CRON_SECRET}` (and every request
+when the secret is unset). Daily scheduling works because the handler is idempotent:
+on ~364 days it no-ops; at a month boundary it finalizes Global, activates due UPCOMING
+custom seasons, finalizes ended custom seasons, and runs the 48-hour achievement
+catch-up sweep (`docs/markets.md`).
