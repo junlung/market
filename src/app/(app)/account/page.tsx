@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { LocalTime } from "@/components/ui/local-time";
-import { ExternalLink, Gem, Gift, Shirt } from "lucide-react";
+import { ExternalLink, Gem, Gift, Shirt, UserPlus } from "lucide-react";
 import clsx from "clsx";
 import { BadgeGlyph, TitleLine } from "@/components/members/cosmetic-renderers";
 import { BioForm } from "@/components/members/bio-form";
@@ -124,6 +124,21 @@ export default async function AccountPage() {
                 <>Show up and it lands automatically. Next reset {formatRelativeTime(getNextIsoWeekStart(new Date()))}.</>
               )}
             </p>
+          </div>
+
+          <div className="rounded-xl border border-border bg-surface p-4">
+            <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-faint">
+              <UserPlus className="size-3.5 text-primary" aria-hidden /> Invite friends
+            </p>
+            <p className="mt-1.5 text-sm text-muted">
+              Point them at the sign-up page, then vouch so an admin lets them in faster.
+            </p>
+            <Link
+              href="/invite"
+              className="mt-2 inline-block text-xs font-medium text-primary hover:text-primary-hover"
+            >
+              Invite &amp; vouch →
+            </Link>
           </div>
         </div>
 

@@ -31,7 +31,6 @@ export type MarketFormState = ActionResult & {
 function invalidateAppData() {
   revalidatePath("/dashboard");
   revalidatePath("/portfolio");
-  revalidatePath("/history");
   revalidatePath("/leaderboard");
   revalidatePath("/account");
   revalidatePath("/activity");

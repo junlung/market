@@ -1,8 +1,6 @@
+// route gating lives in src/middleware.ts (matcher + withAuth) — this module
+// only handles the login round-trip destination
 export const DEFAULT_LOGIN_REDIRECT = "/dashboard";
-export const AUTH_ROUTES = ["/sign-in", "/sign-up"];
-export const PUBLIC_ROUTES = ["/"];
-export const ADMIN_PREFIX = "/admin";
-export const PROTECTED_PREFIXES = ["/dashboard", "/portfolio", "/history", "/leaderboard", "/account", "/markets", "/leagues", "/l", "/store", "/join"];
 
 /**
  * Only same-origin destinations survive the login round-trip — anything else

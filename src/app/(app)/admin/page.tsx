@@ -1,8 +1,8 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { MarketStatus } from "@prisma/client";
+import clsx from "clsx";
 import { PageHeader } from "@/components/ui/page-header";
-import { StatCard } from "@/components/ui/stat-card";
 import { buttonClasses } from "@/components/ui/button";
 import { getUnresolvedFeedbackCount } from "@/lib/server/feedback-service";
 import { getAdminMarkets } from "@/lib/server/market-service";
@@ -31,14 +31,11 @@ export default async function AdminPage() {
       (market.status === MarketStatus.OPEN && market.closeTime <= new Date()),
   ).length;
 
-  const tiles: Array<{ label: string; value: number; href: Route }> = [
-    { label: "Active members", value: memberCounts.active, href: "/admin/members" as Route },
-    { label: "Members pending", value: memberCounts.pending, href: "/admin/members" as Route },
-    { label: "Proposals pending", value: proposals, href: "/admin/markets?status=PROPOSED" as Route },
-    { label: "Open markets", value: open, href: "/admin/markets?status=OPEN" as Route },
-    { label: "Closing in 24h", value: closingSoon, href: "/admin/markets?status=OPEN" as Route },
-    { label: "Awaiting resolution", value: awaitingResolution, href: "/admin/markets?status=CLOSED" as Route },
-    { label: "Feedback unresolved", value: unresolvedFeedback, href: "/admin/feedback" as Route },
+  const attention: Array<{ label: string; count: number; href: Route; zero: string }> = [
+    { label: "Members pending", count: memberCounts.pending, href: "/admin/members" as Route, zero: "queue's clear" },
+    { label: "Proposals pending", count: proposals, href: "/admin/markets?status=PROPOSED" as Route, zero: "none waiting" },
+    { label: "Awaiting resolution", count: awaitingResolution, href: "/admin/markets?status=CLOSED" as Route, zero: "all settled" },
+    { label: "Feedback unresolved", count: unresolvedFeedback, href: "/admin/feedback" as Route, zero: "inbox zero" },
   ];
 
   return (
@@ -52,27 +49,46 @@ export default async function AdminPage() {
           </Link>
         }
       />
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {tiles.map((tile) => (
-          <Link key={tile.label} href={tile.href} className="transition-transform hover:-translate-y-0.5">
-            <StatCard label={tile.label} value={String(tile.value)} />
-          </Link>
-        ))}
+
+      <div>
+        <h2 className="mb-2 text-sm font-semibold text-muted">Needs attention</h2>
+        <div className="divide-y divide-border rounded-xl border border-border bg-surface">
+          {attention.map((row) => (
+            <Link
+              key={row.label}
+              href={row.href}
+              className="flex items-center gap-3 p-3 transition-colors hover:bg-surface-2"
+            >
+              <span
+                className={clsx(
+                  "min-w-7 rounded-full px-2 py-0.5 text-center text-sm font-bold tabular-nums",
+                  row.count > 0 ? "bg-no/10 text-no" : "bg-surface-2 text-faint",
+                )}
+              >
+                {row.count}
+              </span>
+              <span className="flex-1 text-sm font-medium">{row.label}</span>
+              {row.count > 0 ? (
+                <span className="text-xs font-medium text-primary">Review →</span>
+              ) : (
+                <span className="text-xs text-faint">{row.zero}</span>
+              )}
+            </Link>
+          ))}
+        </div>
       </div>
-      <div className="flex flex-wrap gap-2">
-        <Link href="/admin/markets" className={buttonClasses("secondary", "md")}>
-          Manage all markets →
-        </Link>
-        <Link href="/admin/members" className={buttonClasses("secondary", "md")}>
-          Manage members →
-        </Link>
-        <Link href="/admin/items" className={buttonClasses("secondary", "md")}>
-          Items &amp; store →
-        </Link>
-        <Link href="/admin/feedback" className={buttonClasses("secondary", "md")}>
-          Feedback →
-        </Link>
-      </div>
+
+      <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted tabular-nums">
+        <span>
+          <span className="font-semibold text-foreground">{memberCounts.active}</span> active members
+        </span>
+        <span>
+          <span className="font-semibold text-foreground">{open}</span> open markets
+        </span>
+        <span>
+          <span className="font-semibold text-foreground">{closingSoon}</span> closing in 24h
+        </span>
+      </p>
     </section>
   );
 }

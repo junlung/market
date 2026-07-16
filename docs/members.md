@@ -41,6 +41,21 @@ accounts hold nothing, so junk signups cost nothing.
 - Roles are a global `ADMIN | MEMBER` enum on `User`. Per-league authority comes from
   `LeagueMembership.role` (`docs/leagues.md`).
 
+## Navigation
+
+- Primary destinations live in the desktop top nav — Markets (`/dashboard`),
+  Portfolio, Leaderboard, Leagues, Activity, Store — and the mobile tab bar mirrors
+  them with Account in place of Store (on mobile, Store is reached via the balance
+  menu's Gems row or the account page). Both lists are defined together in
+  `src/components/layout/nav-config.ts`, which states the mirror contract.
+- The avatar menu holds identity and utilities only: Your profile, Account,
+  Admin (admins), Send feedback, Sign out. Content and actions live on their pages —
+  proposing a market is a button on `/dashboard`, inviting/vouching is reached from
+  an Account-page card, and bet history is the second tab of `/portfolio`
+  (`?tab=history`; the old `/history` route redirects there).
+- Admin sub-pages (`/admin`, `/admin/markets`, `/admin/members`, `/admin/items`,
+  `/admin/feedback`) share a tab-strip nav rendered by `src/app/(app)/admin/layout.tsx`.
+
 ## Usernames and profiles
 
 - `username` is the stable public handle: unique, lowercase, 3–20 chars of
@@ -137,5 +152,5 @@ path is user-supplied metadata: the service drops anything that doesn't start wi
 
 Admins triage at `/admin/feedback` (unresolved newest-first on top, resolved
 collapsed below) and can resolve or reopen each entry — `resolvedAt` is a mutable
-triage flag, not part of the append-only record. The admin dashboard shows the
-unresolved count as a tile.
+triage flag, not part of the append-only record. The admin dashboard's
+needs-attention list shows the unresolved count with a link into the queue.

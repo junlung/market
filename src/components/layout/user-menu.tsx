@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
-import { CircleUserRound, Crown, History, LogOut, MessageSquarePlus, PlusCircle, Shield, Store, User, UserPlus } from "lucide-react";
+import { CircleUserRound, LogOut, MessageSquarePlus, Shield, User } from "lucide-react";
 import { FeedbackDialog } from "@/components/layout/feedback-dialog";
 import { MemberAvatar } from "@/components/members/member-avatar";
 import type { FrameStyle } from "@/lib/cosmetics";
@@ -59,21 +59,6 @@ export function UserMenu({
           </Link>
           <Link href="/account" className={itemClass} onClick={() => setOpen(false)}>
             <User className="size-4" /> Account
-          </Link>
-          <Link href="/history" className={itemClass} onClick={() => setOpen(false)}>
-            <History className="size-4" /> Bet history
-          </Link>
-          <Link href="/markets/new" className={itemClass} onClick={() => setOpen(false)}>
-            <PlusCircle className="size-4" /> Propose a market
-          </Link>
-          <Link href="/leagues" className={itemClass} onClick={() => setOpen(false)}>
-            <Crown className="size-4" /> Leagues
-          </Link>
-          <Link href="/store" className={itemClass} onClick={() => setOpen(false)}>
-            <Store className="size-4" /> Store
-          </Link>
-          <Link href="/invite" className={itemClass} onClick={() => setOpen(false)}>
-            <UserPlus className="size-4" /> Invite friends
           </Link>
           {isAdmin ? (
             <Link href="/admin" className={itemClass} onClick={() => setOpen(false)}>

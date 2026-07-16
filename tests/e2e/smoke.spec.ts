@@ -58,7 +58,9 @@ test("admin can reach the control center and see the proposal queue", async ({ p
   await signIn(page, adminEmail);
   await page.goto("/admin");
   await expect(page.getByRole("heading", { name: /League control center/i })).toBeVisible();
-  await page.getByRole("link", { name: /Manage all markets/i }).click();
+  await expect(page.getByText("Needs attention")).toBeVisible();
+  // scoped to the admin tab strip — the top nav also has a "Markets" link
+  await page.getByRole("navigation", { name: "Admin sections" }).getByRole("link", { name: "Markets" }).click();
   await expect(page).toHaveURL(/admin\/markets/);
 });
 

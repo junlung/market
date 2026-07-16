@@ -1,26 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import type { Route } from "next";
 import { usePathname } from "next/navigation";
-import { Activity, Home, Trophy, User, Wallet } from "lucide-react";
 import clsx from "clsx";
-
-const TABS: Array<{ href: Route; label: string; icon: typeof Home }> = [
-  { href: "/dashboard", label: "Markets", icon: Home },
-  { href: "/portfolio", label: "Portfolio", icon: Wallet },
-  { href: "/leaderboard", label: "Ranks", icon: Trophy },
-  { href: "/activity", label: "Activity", icon: Activity },
-  { href: "/account", label: "Account", icon: User },
-];
+import { MOBILE_TABS } from "@/components/layout/nav-config";
 
 export function MobileTabBar() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/95 backdrop-blur md:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/95 backdrop-blur lg:hidden">
       <div className="flex justify-around pb-[env(safe-area-inset-bottom)]">
-        {TABS.map((tab) => {
+        {MOBILE_TABS.map((tab) => {
           const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
           return (
             <Link
@@ -32,7 +23,7 @@ export function MobileTabBar() {
               )}
             >
               <tab.icon className="size-5" aria-hidden />
-              {tab.label}
+              <span className="whitespace-nowrap">{tab.label}</span>
             </Link>
           );
         })}

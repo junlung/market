@@ -8,7 +8,7 @@ export default function AppLayout({ children }: Readonly<{ children: React.React
   return (
     <div className="min-h-screen">
       <TopNav />
-      <main className="mx-auto max-w-6xl px-4 py-6 pb-20 sm:px-6 md:pb-10">
+      <main className="mx-auto max-w-6xl px-4 py-6 pb-20 sm:px-6 lg:pb-10">
         <BetaNotice />
         {children}
       </main>

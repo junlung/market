@@ -1,5 +1,4 @@
 import Link from "next/link";
-import type { Route } from "next";
 import { requireSession } from "@/lib/session";
 import { ensureWeeklyAllowance, hasCurrentWeekAllowance } from "@/lib/server/allowance-service";
 import { getGemBalance } from "@/lib/server/gem-service";
@@ -7,18 +6,11 @@ import { getUserCosmetics } from "@/lib/server/item-service";
 import { getLeagueStacks } from "@/lib/server/league-service";
 import { getUserBalance } from "@/lib/server/market-service";
 import { BalanceMenu } from "@/components/layout/balance-menu";
+import { NAV_LINKS } from "@/components/layout/nav-config";
 import { NavLinks } from "@/components/layout/nav-links";
 import { SearchBox } from "@/components/layout/search-box";
 import { UserMenu } from "@/components/layout/user-menu";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-
-const NAV_LINKS: Array<{ href: Route; label: string }> = [
-  { href: "/dashboard", label: "Markets" },
-  { href: "/portfolio", label: "Portfolio" },
-  { href: "/leaderboard", label: "Leaderboard" },
-  { href: "/leagues", label: "Leagues" },
-  { href: "/activity", label: "Activity" },
-];
 
 export async function TopNav() {
   const session = await requireSession();
@@ -60,6 +52,7 @@ export async function TopNav() {
           gems={gems}
         />
 
+        {/* issue #3: the notification bell mounts here, between BalanceMenu and ThemeToggle */}
         <ThemeToggle />
 
         <UserMenu
