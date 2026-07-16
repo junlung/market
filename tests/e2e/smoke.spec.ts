@@ -62,6 +62,49 @@ test("admin can reach the control center and see the proposal queue", async ({ p
   await expect(page).toHaveURL(/admin\/markets/);
 });
 
+test("admin sees the Manage tab on a global market; a member doesn't", async ({ page }) => {
+  await signIn(page, adminEmail);
+  await page.getByRole("link", { name: /Will the Knicks win their next playoff series/i }).first().click();
+  await page.waitForURL(/markets\//);
+
+  await page.getByRole("tab", { name: "Manage" }).click();
+  await expect(page.getByText(/Market management/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: /Close betting now/i })).toBeVisible();
+  const marketUrl = page.url();
+
+  await signIn(page, memberEmail);
+  await page.goto(marketUrl);
+  await expect(page.getByRole("tab", { name: "Manage" })).toHaveCount(0);
+  await expect(page.getByText(/Market management/i)).toHaveCount(0);
+});
+
+test("admin edits a bet-free market inline from its public page", async ({ page }) => {
+  const stamp = Date.now();
+  const title = `Smoke edit market ${stamp}?`;
+
+  // create & open a fresh market so the edit window (no bets yet) is open
+  await signIn(page, adminEmail);
+  await page.goto("/admin/markets/new");
+  await page.getByLabel("Question").fill(title);
+  await page.getByLabel("Category").fill("Smoke");
+  await page.getByLabel(/Description/).fill("Created by the smoke suite to test inline editing.");
+  await page.getByLabel("Resolution source").fill("Smoke suite");
+  await page.getByRole("button", { name: "Create & open" }).click();
+  await expect(page.getByText(/Market created/i)).toBeVisible();
+
+  // edit it from the public market page via the Manage tab
+  await page.goto("/dashboard");
+  await page.getByRole("link", { name: title }).first().click();
+  await page.waitForURL(/markets\//);
+  await page.getByRole("tab", { name: "Manage" }).click();
+  await page.locator("summary", { hasText: /Edit market/i }).click();
+  const renamed = `${title.slice(0, -1)} (edited)?`;
+  await page.locator('input[name="title"]').fill(renamed);
+  await page.getByRole("button", { name: "Save market", exact: true }).click();
+  await expect(page.getByText(/Market updated/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: renamed })).toBeVisible();
+});
+
 test("leaderboard page loads after sign-in", async ({ page }) => {
   await signIn(page, memberEmail);
   await page.getByRole("link", { name: "Leaderboard" }).first().click();

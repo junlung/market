@@ -3,7 +3,8 @@ import type { Route } from "next";
 import { notFound, redirect } from "next/navigation";
 import { MarketStatus } from "@prisma/client";
 import { Flame, ScrollText, Shield, Trophy, Users } from "lucide-react";
-import { marketStatusAction } from "@/app/actions/markets";
+import { marketStatusAction, updateMarketAction } from "@/app/actions/markets";
+import { MarketForm } from "@/components/admin/market-form";
 import { ProposalReview } from "@/components/admin/proposal-review";
 import {
   ResolveMarketForm,
@@ -29,7 +30,7 @@ import {
   formatPoints,
   formatSignedPoints,
 } from "@/lib/format";
-import { getMarketStatusLabel } from "@/lib/markets";
+import { getMarketStatusLabel, isMarketEditable } from "@/lib/markets";
 import {
   isYesNoMarket,
   outcomeColorBg,
@@ -81,10 +82,11 @@ export async function MarketDetailView({ marketId, side, outcomeParam, expectedL
     notFound();
   }
 
-  let canOperate = false;
+  // app admins pass everywhere via the requireLeagueRole short-circuit, so
+  // this also lights up the manage panel on Global League markets
+  const canOperate = await canOperateLeague(market.league.id, session.user.id);
   if (!market.league.isGlobal) {
     const membership = await getLeagueMembership(market.league.id, session.user.id);
-    canOperate = await canOperateLeague(market.league.id, session.user.id);
     if (!membership && !canOperate) {
       notFound(); // league markets are members-only
     }
@@ -134,10 +136,12 @@ export async function MarketDetailView({ marketId, side, outcomeParam, expectedL
     );
   }
 
+  // operators get a full-width Manage tab (deep-linkable as ?tab=manage)
+  // rather than a card in the narrow sidebar
   const managePanel = canOperate ? (
-    <div className="space-y-4 rounded-xl border border-warn/40 bg-surface p-4">
+    <div className="max-w-2xl space-y-4 rounded-xl border border-warn/40 bg-surface p-4">
       <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-warn">
-        <Shield className="size-3.5" aria-hidden /> League management
+        <Shield className="size-3.5" aria-hidden /> Market management
       </p>
       {market.status === MarketStatus.PROPOSED ? <ProposalReview marketId={market.id} /> : null}
       {market.status === MarketStatus.DRAFT ? (
@@ -171,6 +175,37 @@ export async function MarketDetailView({ marketId, side, outcomeParam, expectedL
           }))}
           previews={previews}
         />
+      ) : null}
+      {isMarketEditable(market) ? (
+        <details className="rounded-xl border border-border bg-surface-2">
+          <summary className="cursor-pointer p-3 text-sm font-semibold text-muted">
+            Edit market
+          </summary>
+          <div className="border-t border-border p-3">
+            <MarketForm
+              action={updateMarketAction}
+              // custom-league markets inherit the league's economy settings,
+              // so propose mode hides the rake/stake fields there
+              mode={market.league.isGlobal ? "admin" : "propose"}
+              market={{
+                id: market.id,
+                title: market.title,
+                description: market.description,
+                category: market.category,
+                closeTime: market.closeTime,
+                resolveTime: market.resolveTime,
+                resolutionSource: market.resolutionSource,
+                outcomes: market.outcomes.map((outcome) => ({
+                  label: outcome.label,
+                  color: outcome.color,
+                  emoji: outcome.emoji,
+                })),
+                maxStakePerUser: market.maxStakePerUser,
+                rakeBps: market.rakeBps,
+              }}
+            />
+          </div>
+        </details>
       ) : null}
     </div>
   ) : null;
@@ -311,7 +346,6 @@ export async function MarketDetailView({ marketId, side, outcomeParam, expectedL
         <div className="space-y-4 lg:hidden">
           {isOpen ? betSlip : null}
           {viewerPosition}
-          {managePanel}
         </div>
 
         <Tabs
@@ -320,8 +354,10 @@ export async function MarketDetailView({ marketId, side, outcomeParam, expectedL
             { id: "comments", label: "Comments", count: market.comments.length },
             { id: "positions", label: "Positions", count: market.positions.length },
             { id: "rules", label: "Rules" },
+            ...(canOperate ? [{ id: "manage", label: "Manage" }] : []),
           ]}
           panels={{
+            ...(canOperate ? { manage: managePanel } : {}),
             activity:
               market.activity.length === 0 ? (
                 <p className="py-6 text-center text-sm text-muted">Nothing yet — first bet takes the lead.</p>
@@ -405,7 +441,6 @@ export async function MarketDetailView({ marketId, side, outcomeParam, expectedL
           )}
 
           {viewerPosition}
-          {managePanel}
 
           <div className="rounded-xl border border-border bg-surface p-4 text-xs text-muted">
             {market.outcomes.map((outcome) => (

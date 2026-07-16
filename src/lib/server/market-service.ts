@@ -1013,6 +1013,7 @@ export async function getMarketDetail(marketId: string, userId: string) {
     maxStakePerUser: market.maxStakePerUser,
     openedAt: market.openedAt,
     createdAt: market.createdAt,
+    firstBetAt: market.firstBetAt,
     outcomes: odds.outcomes,
     leader: odds.leader,
     leaderTied: odds.leaderTied,

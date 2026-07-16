@@ -55,6 +55,15 @@ Validation rules (count, label rules, duplicate detection) live in
 - Editability: PROPOSED/DRAFT markets are fully editable; an OPEN market is editable
   only until its first bet (`firstBetAt`), after which question, outcomes, close time,
   and economy settings are all frozen.
+- Operators work inline from the market page itself: an operator-only **Manage tab**
+  (`src/components/markets/market-detail-view.tsx`, deep-linkable as `?tab=manage`)
+  carries proposal review, open/close, resolve and cancel with settlement previews,
+  and — while the market is still editable — a collapsible edit form. It appears for
+  operators on global and custom-league markets alike. On custom-league markets the
+  edit form hides the economy fields (rake and stake cap always come from the
+  league's settings); on global markets admins can edit them. The admin dashboard's
+  `/admin/markets/[id]` page is a second path to the same actions, with per-user
+  stake and settlement detail the public page doesn't show.
 
 ## Bet writes
 
