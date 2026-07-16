@@ -4,13 +4,18 @@ import { MarketStatus } from "@prisma/client";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { buttonClasses } from "@/components/ui/button";
+import { getUnresolvedFeedbackCount } from "@/lib/server/feedback-service";
 import { getAdminMarkets } from "@/lib/server/market-service";
 import { getUserStatusCounts } from "@/lib/server/member-service";
 import { requireAdminSession } from "@/lib/session";
 
 export default async function AdminPage() {
   await requireAdminSession();
-  const [markets, memberCounts] = await Promise.all([getAdminMarkets(), getUserStatusCounts()]);
+  const [markets, memberCounts, unresolvedFeedback] = await Promise.all([
+    getAdminMarkets(),
+    getUserStatusCounts(),
+    getUnresolvedFeedbackCount(),
+  ]);
 
   const proposals = markets.filter((market) => market.status === MarketStatus.PROPOSED).length;
   const open = markets.filter((market) => market.status === MarketStatus.OPEN).length;
@@ -33,6 +38,7 @@ export default async function AdminPage() {
     { label: "Open markets", value: open, href: "/admin/markets?status=OPEN" as Route },
     { label: "Closing in 24h", value: closingSoon, href: "/admin/markets?status=OPEN" as Route },
     { label: "Awaiting resolution", value: awaitingResolution, href: "/admin/markets?status=CLOSED" as Route },
+    { label: "Feedback unresolved", value: unresolvedFeedback, href: "/admin/feedback" as Route },
   ];
 
   return (
@@ -62,6 +68,9 @@ export default async function AdminPage() {
         </Link>
         <Link href="/admin/items" className={buttonClasses("secondary", "md")}>
           Items &amp; store →
+        </Link>
+        <Link href="/admin/feedback" className={buttonClasses("secondary", "md")}>
+          Feedback →
         </Link>
       </div>
     </section>

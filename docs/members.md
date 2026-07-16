@@ -124,3 +124,18 @@ snapshots), `volume-10/50/100` (settled Global markets participated in).
   (`/u/[username]/achievements` lists all: earned lit with date and gems, unearned
   dimmed). Validation caps the showcase and requires the achievements be earned
   (`setShowcasedAchievements`).
+
+## Feedback
+
+Any signed-in member can send feedback from the avatar menu ("Send feedback"): a
+dialog with a message (max 1000 characters) that also captures the path of the page
+they were on. Submissions create append-only `Feedback` rows
+(`src/lib/server/feedback-service.ts`) — there is no editing and no member-facing
+history — and the submit path is rate-limited per user like comments. The captured
+path is user-supplied metadata: the service drops anything that doesn't start with
+`/`, and the admin view renders it as plain text, never as a link.
+
+Admins triage at `/admin/feedback` (unresolved newest-first on top, resolved
+collapsed below) and can resolve or reopen each entry — `resolvedAt` is a mutable
+triage flag, not part of the append-only record. The admin dashboard shows the
+unresolved count as a tile.

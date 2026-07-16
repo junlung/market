@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
-import { CircleUserRound, Crown, History, LogOut, PlusCircle, Shield, Store, User, UserPlus } from "lucide-react";
+import { CircleUserRound, Crown, History, LogOut, MessageSquarePlus, PlusCircle, Shield, Store, User, UserPlus } from "lucide-react";
+import { FeedbackDialog } from "@/components/layout/feedback-dialog";
 import { MemberAvatar } from "@/components/members/member-avatar";
 import type { FrameStyle } from "@/lib/cosmetics";
 
@@ -19,6 +20,7 @@ export function UserMenu({
   frame?: FrameStyle | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -41,6 +43,7 @@ export function UserMenu({
         onClick={() => setOpen((current) => !current)}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label="Account menu"
         className="flex items-center rounded-full transition-opacity hover:opacity-80"
       >
         <MemberAvatar name={name} size="md" frame={frame} />
@@ -78,11 +81,22 @@ export function UserMenu({
             </Link>
           ) : null}
           <div className="my-1 border-t border-border" />
+          <button
+            type="button"
+            className={itemClass}
+            onClick={() => {
+              setOpen(false);
+              setFeedbackOpen(true);
+            }}
+          >
+            <MessageSquarePlus className="size-4" /> Send feedback
+          </button>
           <button type="button" className={itemClass} onClick={() => signOut({ callbackUrl: "/sign-in" })}>
             <LogOut className="size-4" /> Sign out
           </button>
         </div>
       ) : null}
+      <FeedbackDialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </div>
   );
 }

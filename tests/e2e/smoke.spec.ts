@@ -348,3 +348,31 @@ test("leagues: in-app invite and shareable join link", async ({ page, browser, b
   await page.goto(`/join/${code}`);
   await expect(page.getByText(/isn't valid anymore/i)).toBeVisible();
 });
+
+test("feedback: member sends it from the user menu, admin triages it", async ({ page }) => {
+  const message = `Smoke feedback ${Date.now()}`;
+
+  // alex sends feedback from the avatar menu on the dashboard
+  await signIn(page, memberEmail);
+  await page.getByRole("button", { name: "Account menu" }).click();
+  await page.getByRole("button", { name: "Send feedback" }).click();
+  await page.getByPlaceholder(/What's broken/i).fill(message);
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByText(/Feedback sent/i)).toBeVisible();
+
+  // the triage page shows it with the captured path
+  await signIn(page, adminEmail);
+  await page.goto("/admin/feedback");
+  const row = page.locator("div.p-4", { has: page.getByText(message) }).first();
+  await expect(row).toBeVisible();
+  await expect(row.getByText(/on \/dashboard/)).toBeVisible();
+
+  // resolve it: the row moves into the collapsed Resolved section with a Reopen button
+  // (scoped to this test's message — other runs may have left rows behind)
+  await row.getByRole("button", { name: "Resolve" }).click();
+  const resolvedSection = page.locator("details", { has: page.locator("summary", { hasText: /Resolved/ }) });
+  await resolvedSection.locator("summary").click();
+  const resolvedRow = resolvedSection.locator("div.p-4", { has: page.getByText(message) }).first();
+  await expect(resolvedRow).toBeVisible();
+  await expect(resolvedRow.getByRole("button", { name: "Reopen" })).toBeVisible();
+});

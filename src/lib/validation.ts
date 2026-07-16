@@ -236,3 +236,17 @@ export const grantItemAdminSchema = z.object({
   itemId: z.string().cuid(),
   userId: z.string().cuid(),
 });
+
+export const feedbackSchema = z.object({
+  message: z
+    .string()
+    .trim()
+    .min(1, "Say something first.")
+    .max(1000, "Feedback maxes out at 1000 characters."),
+  path: z.string().trim().max(200).optional(),
+});
+
+export const resolveFeedbackSchema = z.object({
+  feedbackId: z.string().cuid(),
+  resolve: z.coerce.boolean().optional(),
+});

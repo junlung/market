@@ -179,6 +179,7 @@ model User {
 
   leagueInvitesReceived LeagueInvite[] @relation("LeagueInvitesReceived")
   leagueInvitesSent     LeagueInvite[] @relation("LeagueInvitesSent")
+  feedback              Feedback[]
 
   @@index([status, createdAt])
 }
@@ -574,6 +575,21 @@ model Comment {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([marketId, createdAt])
+}
+
+model Feedback {
+  id         String    @id @default(cuid())
+  userId     String
+  message    String
+  // page the member was on when they opened the dialog — relative path,
+  // display-only in the admin list (user-forgeable, never rendered as a link)
+  path       String?
+  createdAt  DateTime  @default(now())
+  // triage flag, toggleable by admins; null = unresolved
+  resolvedAt DateTime?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([resolvedAt, createdAt])
 }
 
 model AppLog {
