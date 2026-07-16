@@ -85,6 +85,8 @@ export function BalanceMenu({
               {formatPoints(globalBalance)} pts
             </span>
           </Link>
+          {/* many-league members: the league list scrolls, Global + Gems stay visible */}
+          <div className="max-h-72 overflow-y-auto">
           {leagues.map((league) => (
             <Link
               key={league.slug}
@@ -110,6 +112,7 @@ export function BalanceMenu({
               </span>
             </Link>
           ))}
+          </div>
           <div className="mt-1.5 border-t border-border pt-1.5">
             <Link href="/store" className={rowClass} onClick={() => setOpen(false)}>
               <span className="flex min-w-0 flex-col">

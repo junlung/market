@@ -33,10 +33,26 @@ Any member can create one. Custom leagues are invite-only and route-scoped under
 - **Economy settings** (`startingStack`, `weeklyAllowance`, `defaultRakeBps`,
   `defaultMaxStakePerUser`) are set at creation, editable until the first season
   starts, then locked for the league's lifetime.
-- **Invites:** one rotating 8-character join code per league (ambiguity-free alphabet;
-  helpers in `src/lib/leagues.ts`). Owners/mods regenerate the code to revoke access;
-  joining happens on the `/leagues` page. There is no league browser — membership
-  spreads by code only.
+- **Joining — three paths, all the joiner's choice** (there is no direct-add and no
+  league browser):
+  1. **Code form:** type the league's rotating 8-character code on `/leagues`
+     (ambiguity-free alphabet; helpers in `src/lib/leagues.ts`).
+  2. **Share link:** `/join/[code]` renders a signed-in confirmation page for the same
+     code (never auto-joins). Signed-out visitors round-trip through sign-in and land
+     back on the confirmation (`callbackUrl`, sanitized same-origin-only in
+     `safeCallbackUrl`, `src/lib/routes.ts`). Rotating the code kills the old code and
+     every link carrying it; dead links get a friendly notice, not a 404.
+  3. **In-app invite:** owners/mods invite an approved member from league settings
+     (`LeagueInvite` row, `createLeagueInvite` — the single write point in-app
+     notifications will hook). The invitee accepts or declines from `/leagues`.
+     Accepting runs the same membership + stack path as a code join. Declining is
+     silent — the invite just leaves the league's pending list, and a fresh invite can
+     be sent later (at most one PENDING per invitee per league via the
+     `LeagueInvite_pending_key` partial unique; declined rows are kept). Revoking a
+     pending invite deletes it outright; the role check runs at revoke time.
+- All three paths converge on `ensureLeagueMembership` + `grantSeasonStack`, so
+  double-clicks, races between paths, and re-joins can't duplicate memberships or
+  stacks.
 - **Roles:** `OWNER` / `MOD` / `MEMBER` per league. Owners promote/demote mods; owners
   and mods operate markets and seasons. App admins pass every league-role check
   (`requireLeagueRole`) — the operational safety valve.

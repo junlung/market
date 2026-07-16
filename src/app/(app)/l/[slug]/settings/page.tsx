@@ -3,8 +3,10 @@ import { LeagueRole, SeasonStatus, UserRole } from "@prisma/client";
 import { CalendarClock } from "lucide-react";
 import { updateLeagueSettingsAction } from "@/app/actions/leagues";
 import { InviteCodeCard } from "@/components/leagues/invite-code-card";
+import { InviteMemberForm } from "@/components/leagues/invite-member-form";
 import { LeagueForm } from "@/components/leagues/league-form";
 import { MemberRoleToggle } from "@/components/leagues/member-role-row";
+import { RevokeInviteButton } from "@/components/leagues/revoke-invite-button";
 import { SeasonForm } from "@/components/leagues/season-form";
 import { BadgeGlyph } from "@/components/members/cosmetic-renderers";
 import { MemberAvatar } from "@/components/members/member-avatar";
@@ -15,6 +17,8 @@ import {
   getActiveSeason,
   getLeagueForViewer,
   getUpcomingSeason,
+  listInvitableUsers,
+  listLeagueInvites,
   listLeagueMembers,
 } from "@/lib/server/league-service";
 import { hasStartedSeason, listSeasons } from "@/lib/server/season-service";
@@ -42,13 +46,16 @@ export default async function LeagueSettingsPage({
     notFound();
   }
 
-  const [members, activeSeason, upcomingSeason, settingsLocked, seasons] = await Promise.all([
-    listLeagueMembers(league.id),
-    getActiveSeason(league.id),
-    getUpcomingSeason(league.id),
-    hasStartedSeason(league.id),
-    listSeasons(league.id),
-  ]);
+  const [members, activeSeason, upcomingSeason, settingsLocked, seasons, invitable, invites] =
+    await Promise.all([
+      listLeagueMembers(league.id),
+      getActiveSeason(league.id),
+      getUpcomingSeason(league.id),
+      hasStartedSeason(league.id),
+      listSeasons(league.id),
+      listInvitableUsers(league.id),
+      listLeagueInvites(league.id),
+    ]);
 
   const cosmetics = await getEquippedCosmetics(members.map((row) => row.user.id));
 
@@ -58,6 +65,36 @@ export default async function LeagueSettingsPage({
         {league.inviteCode ? (
           <InviteCodeCard leagueId={league.id} slug={slug} code={league.inviteCode} />
         ) : null}
+
+        <div className="rounded-xl border border-border bg-surface p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-faint">Invites</p>
+          <div className="mt-3">
+            <InviteMemberForm
+              leagueId={league.id}
+              slug={slug}
+              candidates={invitable.map((user) => ({
+                id: user.id,
+                name: user.name,
+                username: user.username,
+              }))}
+            />
+          </div>
+          {invites.length > 0 ? (
+            <ul className="mt-3 divide-y divide-border">
+              {invites.map((invite) => (
+                <li key={invite.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{invite.user.name}</span>
+                    <span className="text-xs text-muted">
+                      invited <LocalTime date={invite.createdAt} />
+                    </span>
+                  </span>
+                  <RevokeInviteButton inviteId={invite.id} slug={slug} />
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
 
         <div className="rounded-xl border border-border bg-surface p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-faint">Members</p>

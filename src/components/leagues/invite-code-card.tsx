@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, RefreshCw } from "lucide-react";
+import { Check, Copy, Link as LinkIcon, RefreshCw } from "lucide-react";
 import { rotateInviteCodeAction } from "@/app/actions/leagues";
 import { Button } from "@/components/ui/button";
 import { formatInviteCode } from "@/lib/leagues";
@@ -16,11 +16,18 @@ export function InviteCodeCard({
   code: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   async function copy() {
     await navigator.clipboard.writeText(formatInviteCode(code));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  }
+
+  async function copyLink() {
+    await navigator.clipboard.writeText(`${window.location.origin}/join/${code}`);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 1500);
   }
 
   return (
@@ -34,6 +41,10 @@ export function InviteCodeCard({
           {copied ? <Check className="size-4 text-yes" aria-hidden /> : <Copy className="size-4" aria-hidden />}
           {copied ? "Copied" : "Copy"}
         </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={copyLink}>
+          {linkCopied ? <Check className="size-4 text-yes" aria-hidden /> : <LinkIcon className="size-4" aria-hidden />}
+          {linkCopied ? "Copied" : "Copy link"}
+        </Button>
         <form action={rotateInviteCodeAction}>
           <input type="hidden" name="leagueId" value={leagueId} />
           <input type="hidden" name="slug" value={slug} />
@@ -43,7 +54,7 @@ export function InviteCodeCard({
         </form>
       </div>
       <p className="mt-2 text-xs text-faint">
-        Anyone with this code can join. Rotating it kills the old code immediately.
+        Anyone with the code or link can join. Rotating kills both immediately.
       </p>
     </div>
   );

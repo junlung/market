@@ -3,12 +3,14 @@ import {
   AppLogEventType,
   AppLogLevel,
   LeagueBalancePolicy,
+  LeagueInviteStatus,
   LeagueJoinPolicy,
   LeagueRole,
   LedgerEntryType,
   Prisma,
   SeasonStatus,
   UserRole,
+  UserStatus,
 } from "@prisma/client";
 import {
   GLOBAL_LEAGUE_SLUG,
@@ -212,18 +214,31 @@ export async function createLeague(input: {
 }
 
 /**
+ * Resolves a raw invite code (any formatting) to its league, or null if the
+ * code doesn't match a custom league. The join form and /join/[code] both go
+ * through here so they can never disagree on normalization.
+ */
+export async function getLeagueByInviteCode(rawCode: string) {
+  const code = normalizeInviteCode(rawCode);
+  if (code.length === 0) {
+    return null;
+  }
+
+  const league = await prisma.league.findUnique({
+    where: { inviteCode: code },
+    include: { _count: { select: { memberships: true } } },
+  });
+  return !league || league.isGlobal ? null : league;
+}
+
+/**
  * Joins a league by its rotating invite code. Idempotent for existing
  * members; grants the current season's fresh stack to mid-season joiners so
  * they can play immediately.
  */
 export async function joinLeagueByCode(userId: string, rawCode: string) {
-  const code = normalizeInviteCode(rawCode);
-  if (code.length === 0) {
-    throw new Error("Enter an invite code.");
-  }
-
-  const league = await prisma.league.findUnique({ where: { inviteCode: code } });
-  if (!league || league.isGlobal) {
+  const league = await getLeagueByInviteCode(rawCode);
+  if (!league) {
     throw new Error("That invite code doesn't match any league.");
   }
 
@@ -306,6 +321,188 @@ export async function rotateInviteCode(leagueId: string, actorId: string) {
       throw error;
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// League invites — joining is always the invitee's choice (accept/decline),
+// never a direct add. At most one PENDING invite per (league, invitee) via
+// the LeagueInvite_pending_key partial unique; declined rows are kept so a
+// re-invite is just a fresh PENDING row.
+// ---------------------------------------------------------------------------
+
+/** Who may send and revoke invites. */
+const INVITER_ROLES: LeagueRole[] = [LeagueRole.OWNER, LeagueRole.MOD];
+
+/**
+ * The single invite-creation write point — in-app notifications for new
+ * invites (issue #3) hook in here.
+ */
+export async function createLeagueInvite(leagueId: string, actorId: string, inviteeUserId: string) {
+  await requireLeagueRole(leagueId, actorId, INVITER_ROLES);
+
+  const league = await prisma.league.findUniqueOrThrow({ where: { id: leagueId } });
+  if (league.isGlobal) {
+    throw new Error("Everyone is already in the Global League.");
+  }
+
+  const invitee = await prisma.user.findUnique({
+    where: { id: inviteeUserId },
+    select: { id: true, name: true, status: true },
+  });
+  if (!invitee || invitee.status !== UserStatus.ACTIVE) {
+    throw new Error("Only approved members can be invited.");
+  }
+
+  const membership = await getLeagueMembership(leagueId, inviteeUserId);
+  if (membership) {
+    throw new Error(`${invitee.name} is already a member of this league.`);
+  }
+
+  try {
+    const invite = await prisma.leagueInvite.create({
+      data: { leagueId, userId: inviteeUserId, invitedById: actorId },
+    });
+    await logLeagueAction(`Invited ${invitee.name} to ${league.name}`, actorId, {
+      leagueId,
+      inviteId: invite.id,
+      inviteeUserId,
+    });
+    return invite;
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      throw new Error(`${invitee.name} already has a pending invite to this league.`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Accepting = the same membership + fresh-stack work as a code join (both
+ * idempotent via uniques), then claiming the invite row last — a crash in
+ * between leaves a PENDING invite whose re-accept self-heals. The season is
+ * resolved at accept time, so one that started after the invite still deals.
+ */
+export async function acceptLeagueInvite(inviteId: string, userId: string) {
+  const invite = await prisma.leagueInvite.findFirst({
+    where: { id: inviteId, userId },
+    include: { league: true },
+  });
+  if (!invite) {
+    throw new Error("That invite is gone — ask for a new one.");
+  }
+  if (invite.status === LeagueInviteStatus.ACCEPTED) {
+    return invite.league; // double-click / re-entry
+  }
+  if (invite.status === LeagueInviteStatus.DECLINED) {
+    throw new Error("You already declined this invite — ask for a new one.");
+  }
+
+  await ensureLeagueMembership(invite.league.id, userId);
+
+  const activeSeason = await getActiveSeason(invite.league.id);
+  if (activeSeason && invite.league.balancePolicy === LeagueBalancePolicy.FRESH_PER_SEASON) {
+    await grantSeasonStack(userId, invite.league, activeSeason);
+  }
+
+  const claimed = await prisma.leagueInvite.updateMany({
+    where: { id: inviteId, status: LeagueInviteStatus.PENDING },
+    data: { status: LeagueInviteStatus.ACCEPTED, respondedAt: new Date() },
+  });
+  if (claimed.count === 0) {
+    const current = await prisma.leagueInvite.findUnique({ where: { id: inviteId } });
+    if (current?.status !== LeagueInviteStatus.ACCEPTED) {
+      throw new Error("That invite is no longer pending."); // revoked mid-flight
+    }
+  }
+
+  await logLeagueAction(`Accepted invite to ${invite.league.name}`, userId, {
+    leagueId: invite.league.id,
+  });
+  return invite.league;
+}
+
+/** Declining is silent — the inviter's pending list just shrinks. */
+export async function declineLeagueInvite(inviteId: string, userId: string) {
+  const declined = await prisma.leagueInvite.updateMany({
+    where: { id: inviteId, userId, status: LeagueInviteStatus.PENDING },
+    data: { status: LeagueInviteStatus.DECLINED, respondedAt: new Date() },
+  });
+  if (declined.count === 0) {
+    throw new Error("That invite is no longer pending.");
+  }
+  await logLeagueAction(`Declined a league invite`, userId, { inviteId });
+}
+
+/**
+ * Revoking deletes the PENDING row outright — from the invitee's view the
+ * invite never happened. Racing an accept/decline is a silent no-op (the
+ * response wins). The role check runs here, at revoke time, so an inviter
+ * demoted since sending can no longer revoke.
+ */
+export async function revokeLeagueInvite(inviteId: string, actorId: string) {
+  const invite = await prisma.leagueInvite.findUnique({ where: { id: inviteId } });
+  if (!invite) {
+    return;
+  }
+  await requireLeagueRole(invite.leagueId, actorId, INVITER_ROLES);
+
+  const deleted = await prisma.leagueInvite.deleteMany({
+    where: { id: inviteId, status: LeagueInviteStatus.PENDING },
+  });
+  if (deleted.count === 1) {
+    await logLeagueAction(`Revoked a league invite`, actorId, {
+      leagueId: invite.leagueId,
+      inviteeUserId: invite.userId,
+    });
+  }
+}
+
+/** The viewer's open invites, for the /leagues page. */
+export async function listPendingInvitesForUser(userId: string) {
+  return prisma.leagueInvite.findMany({
+    where: { userId, status: LeagueInviteStatus.PENDING },
+    include: {
+      league: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          description: true,
+          _count: { select: { memberships: true } },
+        },
+      },
+      invitedBy: { select: { name: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+/** A league's outstanding invites, for the settings page (PENDING only — declines are silent). */
+export async function listLeagueInvites(
+  leagueId: string,
+  statuses: LeagueInviteStatus[] = [LeagueInviteStatus.PENDING],
+) {
+  return prisma.leagueInvite.findMany({
+    where: { leagueId, status: { in: statuses } },
+    include: {
+      user: { select: { id: true, name: true, username: true } },
+      invitedBy: { select: { name: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/** Approved members who can still be invited: not in the league, no open invite. */
+export async function listInvitableUsers(leagueId: string) {
+  return prisma.user.findMany({
+    where: {
+      status: UserStatus.ACTIVE,
+      leagueMemberships: { none: { leagueId } },
+      leagueInvitesReceived: { none: { leagueId, status: LeagueInviteStatus.PENDING } },
+    },
+    select: { id: true, name: true, username: true },
+    orderBy: { name: "asc" },
+  });
 }
 
 /**

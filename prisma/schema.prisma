@@ -132,6 +132,12 @@ enum SeasonStatus {
   FINALIZED
 }
 
+enum LeagueInviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
 model User {
   id           String     @id @default(cuid())
   email        String     @unique
@@ -170,6 +176,9 @@ model User {
   gemLedgerEntries  GemLedgerEntry[]
   leagueMemberships LeagueMembership[]
   ownedLeagues      League[]           @relation("LeagueOwner")
+
+  leagueInvitesReceived LeagueInvite[] @relation("LeagueInvitesReceived")
+  leagueInvitesSent     LeagueInvite[] @relation("LeagueInvitesSent")
 
   @@index([status, createdAt])
 }
@@ -252,6 +261,7 @@ model League {
   seasons       Season[]
   markets       Market[]
   ledgerEntries LedgerEntry[]
+  invites       LeagueInvite[]
 }
 
 // Everyone auto-joins the global league (backfilled in the migration, granted
@@ -269,6 +279,29 @@ model LeagueMembership {
 
   @@unique([leagueId, userId])
   @@index([userId])
+}
+
+// A personal invitation into a custom league — joining is always the
+// invitee's choice (accept/decline), never a direct add. At most one PENDING
+// invite per (leagueId, userId) via a partial unique index in SQL — Prisma
+// can't express it (LeagueInvite_pending_key, see partial-indexes.sql).
+// Declined rows are kept (re-invite creates a fresh PENDING row); revoking
+// deletes the PENDING row outright.
+model LeagueInvite {
+  id          String             @id @default(cuid())
+  leagueId    String
+  userId      String // the invitee
+  invitedById String?
+  status      LeagueInviteStatus @default(PENDING)
+  createdAt   DateTime           @default(now())
+  respondedAt DateTime?
+
+  league    League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  user      User   @relation("LeagueInvitesReceived", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy User?  @relation("LeagueInvitesSent", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([leagueId, status])
 }
 
 // A leaderboard window. Global League seasons are UTC calendar months,

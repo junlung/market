@@ -12,10 +12,17 @@ NextAuth v4 credentials provider with JWT sessions — no database session table
 - The JWT carries `role` and `username`. Tokens minted before a user had a username
   are backfilled from the DB on refresh; profile edits push updates through
   `useSession().update`.
-- `middleware.ts` (`withAuth`) protects every app route in its matcher; `/admin/*`
-  additionally requires `role === ADMIN` (non-admins redirect to `/dashboard`).
-  Server code re-checks with `requireSession` / `requireAdminSession`
-  (`src/lib/session.ts`) — middleware is the outer gate, not the only one.
+- `src/middleware.ts` (`withAuth`) protects every app route in its matcher; `/admin/*`
+  additionally requires `role === ADMIN` (non-admins redirect to `/dashboard`). It
+  must live in `src/` — Next.js silently ignores a root-level middleware.ts when the
+  app directory is under `src/`. Server code re-checks with `requireSession` /
+  `requireAdminSession` (`src/lib/session.ts`) — middleware is the outer gate, not
+  the only one.
+- Signed-out visits to a gated route survive the login round-trip: the middleware
+  bounce appends `callbackUrl`, the sign-in form returns there after login
+  (sanitized same-origin-only via `safeCallbackUrl`, `src/lib/routes.ts`), and
+  `requireSession` accepts an optional callback path for the same effect where a
+  page wants it explicitly (e.g. `/join/[code]`).
 
 ## Signup and approval
 

@@ -23,3 +23,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS "UserItem_equipped_slot_key" ON "UserItem"("us
 
 -- one gem starting grant per user, ever (20260712170100_gem_starting_grant_index)
 CREATE UNIQUE INDEX IF NOT EXISTS "GemLedgerEntry_startingGrant_key" ON "GemLedgerEntry"("userId") WHERE "type" = 'STARTING_GRANT';
+
+-- at most one pending invite per invitee per league (20260716140000_league_invites)
+CREATE UNIQUE INDEX IF NOT EXISTS "LeagueInvite_pending_key" ON "LeagueInvite"("leagueId", "userId") WHERE "status" = 'PENDING';

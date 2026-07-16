@@ -4,6 +4,9 @@ type Props = {
   searchParams: Promise<{
     registered?: string;
     pending?: string;
+    // appended by the auth middleware when it bounces a signed-out request;
+    // validated in safeCallbackUrl before use
+    callbackUrl?: string;
   }>;
 };
 
@@ -47,7 +50,7 @@ export default async function SignInPage({ searchParams }: Props) {
           a friend in the league to vouch for you.
         </p>
       ) : null}
-      <SignInForm />
+      <SignInForm callbackUrl={params.callbackUrl} />
       <DemoAccounts />
     </div>
   );

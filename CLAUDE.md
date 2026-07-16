@@ -13,8 +13,9 @@ This file is the map; each area's full truth lives in docs/ (table below).
 - One cron: `/api/cron/finalize-seasons`, daily 00:05 UTC, gated by a `CRON_SECRET`
   bearer token (`vercel.ts`).
 - Structure: `src/lib/` pure domain logic → `src/lib/server/` DB-touching services →
-  `src/app/actions/` server actions → `src/app/(app)/` authed routes. `middleware.ts`
-  gates every app route.
+  `src/app/actions/` server actions → `src/app/(app)/` authed routes. `src/middleware.ts`
+  gates every app route (it must live in `src/` — a root-level middleware.ts is
+  silently ignored when the app directory is under `src/`).
 
 ## Load-bearing invariants
 
@@ -30,7 +31,8 @@ This file is the map; each area's full truth lives in docs/ (table below).
    anything is written. Never bypass these checks.
 4. **Idempotency is DB-enforced, never app-checked:** allowance
    `[userId, leagueId, allowanceWeek]`; season stacks `[userId, seasonId]`; item
-   grants via `grantKey`; gem grants via partial uniques. Partial uniques live in
+   grants via `grantKey`; gem grants via partial uniques; league invites
+   `[leagueId, userId] WHERE status = 'PENDING'`. Partial uniques live in
    migrations AND `prisma/partial-indexes.sql` — new ones must land in both.
 5. **Enum rule:** adding a Postgres enum value and first using it must be separate
    migrations (Postgres can't reference a same-transaction enum value).

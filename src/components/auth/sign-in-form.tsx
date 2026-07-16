@@ -4,11 +4,11 @@ import Link from "next/link";
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { DEFAULT_LOGIN_REDIRECT } from "@/lib/routes";
+import { safeCallbackUrl } from "@/lib/routes";
 import { Button } from "@/components/ui/button";
 import { FieldError, Input, Label } from "@/components/ui/input";
 
-export function SignInForm() {
+export function SignInForm({ callbackUrl }: { callbackUrl?: string }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +35,8 @@ export function SignInForm() {
       return;
     }
 
-    router.push(DEFAULT_LOGIN_REDIRECT);
+    const destination = safeCallbackUrl(callbackUrl, window.location.origin);
+    router.push(destination as Parameters<typeof router.push>[0]);
     router.refresh();
   }
 

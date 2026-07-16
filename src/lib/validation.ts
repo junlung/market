@@ -196,6 +196,15 @@ export const setLeagueRoleSchema = z.object({
   role: z.enum(["MOD", "MEMBER"]),
 });
 
+export const createLeagueInviteSchema = z.object({
+  leagueId: z.string().cuid(),
+  userId: z.string().cuid(),
+});
+
+export const leagueInviteIdSchema = z.object({
+  inviteId: z.string().cuid(),
+});
+
 // --- Phase 3b: admin item authoring ---
 
 export const itemSlugSchema = z

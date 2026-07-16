@@ -8,6 +8,8 @@
  */
 import {
   ItemSource,
+  LeagueInviteStatus,
+  LeagueRole,
   LedgerEntryType,
   MarketStatus,
   SeasonStatus,
@@ -21,12 +23,20 @@ import { prisma } from "@/lib/prisma";
 import { ensureLeagueAllowance, ensureWeeklyAllowance } from "@/lib/server/allowance-service";
 import { placeBet } from "@/lib/server/bet-service";
 import {
+  acceptLeagueInvite,
   createLeague,
+  createLeagueInvite,
+  declineLeagueInvite,
   ensureGlobalLeague,
   ensureLeagueMembership,
   getLeagueBalance,
+  getLeagueByInviteCode,
   joinLeagueByCode,
+  listInvitableUsers,
+  listPendingInvitesForUser,
+  revokeLeagueInvite,
   rotateInviteCode,
+  setMemberRole,
   updateLeagueSettings,
 } from "@/lib/server/league-service";
 import {
@@ -162,6 +172,7 @@ describe.skipIf(!enabled)("leagues + seasons integration", () => {
     await prisma.userItem.deleteMany();
     await prisma.item.deleteMany();
     await prisma.season.deleteMany();
+    await prisma.leagueInvite.deleteMany();
     await prisma.leagueMembership.deleteMany();
     await prisma.league.deleteMany({ where: { isGlobal: false } });
     await prisma.user.deleteMany();
@@ -379,6 +390,7 @@ describe.skipIf(!enabled)("custom leagues (2b)", () => {
     await prisma.userItem.deleteMany();
     await prisma.item.deleteMany();
     await prisma.season.deleteMany();
+    await prisma.leagueInvite.deleteMany();
     await prisma.leagueMembership.deleteMany();
     await prisma.league.deleteMany({ where: { isGlobal: false } });
     await prisma.user.deleteMany();
@@ -727,5 +739,249 @@ describe.skipIf(!enabled)("custom leagues (2b)", () => {
     ).rejects.toThrow(/close before/i);
 
     await expect(startSeason(league.id, owner.id)).rejects.toThrow(/still active/i);
+  });
+
+  describe("league invites", () => {
+    it("owner invites an active member and the invitee sees it pending", async () => {
+      const owner = await createUser(0);
+      const invitee = await createUser(0);
+      const league = await createCustomLeague(owner.id);
+
+      const invite = await createLeagueInvite(league.id, owner.id, invitee.id);
+      expect(invite.status).toBe(LeagueInviteStatus.PENDING);
+
+      const pending = await listPendingInvitesForUser(invitee.id);
+      expect(pending).toHaveLength(1);
+      expect(pending[0].league.slug).toBe(league.slug);
+    });
+
+    it("double-invite races collapse to one pending row (partial unique)", async () => {
+      const owner = await createUser(0);
+      const invitee = await createUser(0);
+      const league = await createCustomLeague(owner.id);
+
+      const results = await Promise.allSettled([
+        createLeagueInvite(league.id, owner.id, invitee.id),
+        createLeagueInvite(league.id, owner.id, invitee.id),
+      ]);
+
+      const rows = await prisma.leagueInvite.findMany({ where: { userId: invitee.id } });
+      expect(rows).toHaveLength(1);
+      // at least one call succeeded; a losing racer got the friendly error
+      expect(results.some((r) => r.status === "fulfilled")).toBe(true);
+      for (const r of results) {
+        if (r.status === "rejected") {
+          expect(String(r.reason)).toMatch(/pending invite/i);
+        }
+      }
+    });
+
+    it("re-invite after decline creates a fresh pending invite and keeps the declined row", async () => {
+      const owner = await createUser(0);
+      const invitee = await createUser(0);
+      const league = await createCustomLeague(owner.id);
+
+      const first = await createLeagueInvite(league.id, owner.id, invitee.id);
+      await declineLeagueInvite(first.id, invitee.id);
+
+      const second = await createLeagueInvite(league.id, owner.id, invitee.id);
+      expect(second.id).not.toBe(first.id);
+
+      const rows = await prisma.leagueInvite.findMany({
+        where: { userId: invitee.id },
+        orderBy: { createdAt: "asc" },
+      });
+      expect(rows.map((row) => row.status)).toEqual([
+        LeagueInviteStatus.DECLINED,
+        LeagueInviteStatus.PENDING,
+      ]);
+    });
+
+    it("accept creates the membership and deals the stack for a season started after the invite", async () => {
+      const owner = await createUser(0);
+      const invitee = await createUser(0);
+      const league = await createCustomLeague(owner.id);
+
+      const invite = await createLeagueInvite(league.id, owner.id, invitee.id);
+      const season = await startSeason(league.id, owner.id);
+
+      const joined = await acceptLeagueInvite(invite.id, invitee.id);
+      expect(joined.slug).toBe(league.slug);
+
+      const membership = await prisma.leagueMembership.findUnique({
+        where: { leagueId_userId: { leagueId: league.id, userId: invitee.id } },
+      });
+      expect(membership).not.toBeNull();
+
+      const stacks = await prisma.ledgerEntry.findMany({
+        where: { userId: invitee.id, seasonId: season.id, type: LedgerEntryType.SEASON_STACK },
+      });
+      expect(stacks).toHaveLength(1);
+      expect(stacks[0].amount).toBe(200);
+
+      const row = await prisma.leagueInvite.findUniqueOrThrow({ where: { id: invite.id } });
+      expect(row.status).toBe(LeagueInviteStatus.ACCEPTED);
+      expect(row.respondedAt).not.toBeNull();
+    });
+
+    it("double-click accept is idempotent", async () => {
+      const owner = await createUser(0);
+      const invitee = await createUser(0);
+      const league = await createCustomLeague(owner.id);
+      await startSeason(league.id, owner.id);
+      const invite = await createLeagueInvite(league.id, owner.id, invitee.id);
+
+      const results = await Promise.allSettled([
+        acceptLeagueInvite(invite.id, invitee.id),
+        acceptLeagueInvite(invite.id, invitee.id),
+      ]);
+      expect(results.some((r) => r.status === "fulfilled")).toBe(true);
+
+      const memberships = await prisma.leagueMembership.findMany({
+        where: { leagueId: league.id, userId: invitee.id },
+      });
+      expect(memberships).toHaveLength(1);
+      const stacks = await prisma.ledgerEntry.findMany({
+        where: { userId: invitee.id, leagueId: league.id, type: LedgerEntryType.SEASON_STACK },
+      });
+      expect(stacks).toHaveLength(1);
+    });
+
+    it("accept racing a concurrent code-join never duplicates membership or stack", async () => {
+      const owner = await createUser(0);
+      const invitee = await createUser(0);
+      const league = await createCustomLeague(owner.id);
+      await startSeason(league.id, owner.id);
+      const invite = await createLeagueInvite(league.id, owner.id, invitee.id);
+
+      const results = await Promise.allSettled([
+        acceptLeagueInvite(invite.id, invitee.id),
+        joinLeagueByCode(invitee.id, league.inviteCode!),
+      ]);
+      expect(results.every((r) => r.status === "fulfilled")).toBe(true);
+
+      const memberships = await prisma.leagueMembership.findMany({
+        where: { leagueId: league.id, userId: invitee.id },
+      });
+      expect(memberships).toHaveLength(1);
+      const stacks = await prisma.ledgerEntry.findMany({
+        where: { userId: invitee.id, leagueId: league.id, type: LedgerEntryType.SEASON_STACK },
+      });
+      expect(stacks).toHaveLength(1);
+    });
+
+    it("accept after already joining by code still marks the invite accepted", async () => {
+      const owner = await createUser(0);
+      const invitee = await createUser(0);
+      const league = await createCustomLeague(owner.id);
+      const invite = await createLeagueInvite(league.id, owner.id, invitee.id);
+
+      await joinLeagueByCode(invitee.id, league.inviteCode!);
+      await acceptLeagueInvite(invite.id, invitee.id);
+
+      const row = await prisma.leagueInvite.findUniqueOrThrow({ where: { id: invite.id } });
+      expect(row.status).toBe(LeagueInviteStatus.ACCEPTED);
+      const memberships = await prisma.leagueMembership.findMany({
+        where: { leagueId: league.id, userId: invitee.id },
+      });
+      expect(memberships).toHaveLength(1);
+    });
+
+    it("MEMBERs cannot invite and demoted inviters cannot revoke", async () => {
+      const owner = await createUser(0);
+      const mod = await createUser(0);
+      const plain = await createUser(0);
+      const invitee = await createUser(0);
+      const league = await createCustomLeague(owner.id);
+      await joinLeagueByCode(mod.id, league.inviteCode!);
+      await joinLeagueByCode(plain.id, league.inviteCode!);
+      await setMemberRole(league.id, owner.id, mod.id, LeagueRole.MOD);
+
+      await expect(createLeagueInvite(league.id, plain.id, invitee.id)).rejects.toThrow(
+        /permission/i,
+      );
+
+      // a mod can invite…
+      const invite = await createLeagueInvite(league.id, mod.id, invitee.id);
+      // …but loses revoke rights when demoted back to MEMBER
+      await setMemberRole(league.id, owner.id, mod.id, LeagueRole.MEMBER);
+      await expect(revokeLeagueInvite(invite.id, mod.id)).rejects.toThrow(/permission/i);
+    });
+
+    it("cannot invite pending/rejected users, existing members, or into the global league", async () => {
+      const owner = await createUser(0);
+      const member = await createUser(0);
+      const league = await createCustomLeague(owner.id);
+      await joinLeagueByCode(member.id, league.inviteCode!);
+
+      const pendingUser = await prisma.user.create({
+        data: {
+          email: `pending-${Date.now()}@test.local`,
+          name: "Pending Pete",
+          username: `pending-${Date.now() % 1_000_000}`,
+          passwordHash: "not-a-real-hash",
+          status: UserStatus.PENDING,
+        },
+      });
+
+      await expect(createLeagueInvite(league.id, owner.id, pendingUser.id)).rejects.toThrow(
+        /approved members/i,
+      );
+      await expect(createLeagueInvite(league.id, owner.id, member.id)).rejects.toThrow(
+        /already a member/i,
+      );
+
+      const admin = await createUser(0, UserRole.ADMIN);
+      const someone = await createUser(0);
+      await expect(
+        createLeagueInvite(await globalLeagueId(), admin.id, someone.id),
+      ).rejects.toThrow(/Global League/i);
+    });
+
+    it("revoke deletes the pending invite; revoking a responded invite is a no-op", async () => {
+      const owner = await createUser(0);
+      const invitee = await createUser(0);
+      const league = await createCustomLeague(owner.id);
+
+      const invite = await createLeagueInvite(league.id, owner.id, invitee.id);
+      await revokeLeagueInvite(invite.id, owner.id);
+      expect(await prisma.leagueInvite.findUnique({ where: { id: invite.id } })).toBeNull();
+      expect(await listPendingInvitesForUser(invitee.id)).toHaveLength(0);
+
+      const second = await createLeagueInvite(league.id, owner.id, invitee.id);
+      await declineLeagueInvite(second.id, invitee.id);
+      await revokeLeagueInvite(second.id, owner.id); // no-op, no throw
+      const row = await prisma.leagueInvite.findUniqueOrThrow({ where: { id: second.id } });
+      expect(row.status).toBe(LeagueInviteStatus.DECLINED);
+    });
+
+    it("getLeagueByInviteCode resolves the live code and rejects a rotated one", async () => {
+      const owner = await createUser(0);
+      const league = await createCustomLeague(owner.id);
+      const oldCode = league.inviteCode!;
+
+      const found = await getLeagueByInviteCode(`  ${oldCode.slice(0, 4)}-${oldCode.slice(4)} `);
+      expect(found?.id).toBe(league.id);
+
+      await rotateInviteCode(league.id, owner.id);
+      expect(await getLeagueByInviteCode(oldCode)).toBeNull();
+    });
+
+    it("listInvitableUsers excludes members and already-invited users", async () => {
+      const owner = await createUser(0);
+      const member = await createUser(0);
+      const invited = await createUser(0);
+      const fresh = await createUser(0);
+      const league = await createCustomLeague(owner.id);
+      await joinLeagueByCode(member.id, league.inviteCode!);
+      await createLeagueInvite(league.id, owner.id, invited.id);
+
+      const invitable = await listInvitableUsers(league.id);
+      const ids = new Set(invitable.map((user) => user.id));
+      expect(ids.has(fresh.id)).toBe(true);
+      expect(ids.has(owner.id)).toBe(false);
+      expect(ids.has(member.id)).toBe(false);
+      expect(ids.has(invited.id)).toBe(false);
+    });
   });
 });

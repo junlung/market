@@ -4,8 +4,12 @@ import { LeagueRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
+  acceptLeagueInvite,
   createLeague,
+  createLeagueInvite,
+  declineLeagueInvite,
   joinLeagueByCode,
+  revokeLeagueInvite,
   rotateInviteCode,
   setMemberRole,
   updateLeagueSettings,
@@ -14,9 +18,11 @@ import type { ActionResult } from "@/lib/server/market-service";
 import { createSeason } from "@/lib/server/season-service";
 import {
   collectFieldErrors,
+  createLeagueInviteSchema,
   createSeasonSchema,
   joinLeagueSchema,
   leagueFormSchema,
+  leagueInviteIdSchema,
   setLeagueRoleSchema,
 } from "@/lib/validation";
 import { requireSession } from "@/lib/session";
@@ -158,6 +164,98 @@ export async function setLeagueRoleAction(_: ActionResult, formData: FormData): 
     return { success: "Role updated." };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Failed to change that role." };
+  }
+}
+
+export async function createLeagueInviteAction(
+  _: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const session = await requireSession();
+  const parsed = createLeagueInviteSchema.safeParse({
+    leagueId: formData.get("leagueId"),
+    userId: formData.get("userId"),
+  });
+
+  if (!parsed.success) {
+    return { error: "Pick a member to invite." };
+  }
+
+  const slug = String(formData.get("slug") ?? "");
+
+  try {
+    await createLeagueInvite(parsed.data.leagueId, session.user.id, parsed.data.userId);
+    revalidatePath(`/l/${slug}/settings`);
+    revalidatePath("/leagues");
+    return { success: "Invite sent." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to send the invite." };
+  }
+}
+
+export async function revokeLeagueInviteAction(
+  _: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const session = await requireSession();
+  const parsed = leagueInviteIdSchema.safeParse({ inviteId: formData.get("inviteId") });
+
+  if (!parsed.success) {
+    return { error: "Invalid invite." };
+  }
+
+  const slug = String(formData.get("slug") ?? "");
+
+  try {
+    await revokeLeagueInvite(parsed.data.inviteId, session.user.id);
+    revalidatePath(`/l/${slug}/settings`);
+    revalidatePath("/leagues");
+    return { success: "Invite revoked." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to revoke the invite." };
+  }
+}
+
+export async function acceptLeagueInviteAction(
+  _: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const session = await requireSession();
+  const parsed = leagueInviteIdSchema.safeParse({ inviteId: formData.get("inviteId") });
+
+  if (!parsed.success) {
+    return { error: "Invalid invite." };
+  }
+
+  let slug: string;
+  try {
+    const league = await acceptLeagueInvite(parsed.data.inviteId, session.user.id);
+    slug = league.slug;
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to accept the invite." };
+  }
+
+  revalidatePath("/leagues");
+  redirect(`/l/${slug}`);
+}
+
+export async function declineLeagueInviteAction(
+  _: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const session = await requireSession();
+  const parsed = leagueInviteIdSchema.safeParse({ inviteId: formData.get("inviteId") });
+
+  if (!parsed.success) {
+    return { error: "Invalid invite." };
+  }
+
+  try {
+    await declineLeagueInvite(parsed.data.inviteId, session.user.id);
+    revalidatePath("/leagues");
+    return { success: "Invite declined." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to decline the invite." };
   }
 }
 

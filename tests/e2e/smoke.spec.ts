@@ -295,3 +295,56 @@ test("leagues: create one, start a season, and a friend joins by invite code", a
   await expect(friendPage.getByRole("heading", { name })).toBeVisible();
   await context.close();
 });
+
+test("leagues: in-app invite and shareable join link", async ({ page, browser, baseURL }) => {
+  const stamp = Date.now();
+  const name = `Invite League ${stamp}`;
+
+  // alex creates a league and invites Blair from settings
+  await signIn(page, memberEmail);
+  await page.goto("/leagues");
+  await page.getByLabel("League name").fill(name);
+  await page.getByRole("button", { name: "Create league" }).click();
+  await page.waitForURL(/\/l\/invite-league/);
+  await page.getByRole("link", { name: "Settings" }).click();
+  await page.getByLabel("Invite a member").selectOption({ label: "Blair (@blair)" });
+  await page.getByRole("button", { name: "Invite", exact: true }).click();
+  await expect(page.getByText(/Invite sent/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Revoke" })).toBeVisible();
+  const code = (await page.locator("code").first().textContent())?.trim().replace("-", "") ?? "";
+
+  // blair sees the invite on /leagues and accepts, landing in the league
+  const blairContext = await browser.newContext({ baseURL: baseURL! });
+  const blairPage = await blairContext.newPage();
+  await signIn(blairPage, "blair@prollymarket.local");
+  await blairPage.goto("/leagues");
+  await expect(blairPage.getByText(/Invites for you/i)).toBeVisible();
+  await expect(blairPage.getByText(name)).toBeVisible();
+  await blairPage.getByRole("button", { name: "Accept" }).click();
+  await blairPage.waitForURL(/\/l\/invite-league/);
+  await expect(blairPage.getByRole("heading", { name })).toBeVisible();
+  await blairContext.close();
+
+  // casey uses the share link signed OUT: bounced to sign-in, lands back on
+  // the confirm page after logging in (callbackUrl round-trip), then joins
+  const caseyContext = await browser.newContext({ baseURL: baseURL! });
+  const caseyPage = await caseyContext.newPage();
+  await caseyPage.goto(`/join/${code}`);
+  await caseyPage.waitForURL(/sign-in/);
+  await caseyPage.getByLabel("Email").fill("casey@prollymarket.local");
+  await caseyPage.getByLabel("Password").fill(password);
+  await caseyPage.getByRole("button", { name: "Sign in" }).click();
+  await caseyPage.waitForURL(new RegExp(`/join/${code}`));
+  await expect(caseyPage.getByText(/You're invited to/i)).toBeVisible();
+  await caseyPage.getByRole("button", { name: `Join ${name}` }).click();
+  await caseyPage.waitForURL(/\/l\/invite-league/);
+  await expect(caseyPage.getByRole("heading", { name })).toBeVisible();
+  await caseyContext.close();
+
+  // a rotated code turns the old link into the friendly dead-end (wait for
+  // the displayed code to change — navigating too early aborts the action)
+  await page.getByRole("button", { name: "Rotate" }).click();
+  await expect(page.locator("code").first()).not.toHaveText(`${code.slice(0, 4)}-${code.slice(4)}`);
+  await page.goto(`/join/${code}`);
+  await expect(page.getByText(/isn't valid anymore/i)).toBeVisible();
+});
