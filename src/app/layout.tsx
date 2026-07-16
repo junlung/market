@@ -16,17 +16,17 @@ export const metadata: Metadata = {
     default: "ProllyMarket",
     template: "%s · ProllyMarket",
   },
-  description: "The private prediction league for friends. Bet your bragging rights.",
+  description: "The private prediction league for friends. Real odds. Fake money. Eternal glory.",
   openGraph: {
     title: "ProllyMarket",
-    description: "The private prediction league for friends. Bet your bragging rights.",
+    description: "The private prediction league for friends. Real odds. Fake money. Eternal glory.",
     siteName: "ProllyMarket",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
     title: "ProllyMarket",
-    description: "The private prediction league for friends. Bet your bragging rights.",
+    description: "The private prediction league for friends. Real odds. Fake money. Eternal glory.",
   },
 };
 

@@ -5,7 +5,7 @@ export default function AuthLayout({ children }: Readonly<{ children: React.Reac
         <p className="text-2xl font-bold tracking-tight">
           Prolly<span className="text-primary">Market</span>
         </p>
-        <p className="mt-1 text-sm text-muted">Bet your bragging rights.</p>
+        <p className="mt-1 text-sm text-muted">Real odds. Fake money. Eternal glory.</p>
       </div>
       <div className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-[0_1px_2px_rgb(0_0_0/0.04)] sm:p-8">
         {children}
