@@ -43,16 +43,18 @@ accounts hold nothing, so junk signups cost nothing.
 
 ## Navigation
 
-- Primary destinations live in the desktop top nav — Markets (`/dashboard`),
-  Portfolio, Leaderboard, Leagues, Activity, Store — and the mobile tab bar mirrors
-  them with Account in place of Store (on mobile, Store is reached via the balance
-  menu's Gems row or the account page). Both lists are defined together in
-  `src/components/layout/nav-config.ts`, which states the mirror contract.
-- The avatar menu holds identity and utilities only: Your profile, Account,
-  Admin (admins), Send feedback, Sign out. Content and actions live on their pages —
-  proposing a market is a button on `/dashboard`, inviting/vouching is reached from
-  an Account-page card, and bet history is the second tab of `/portfolio`
-  (`?tab=history`; the old `/history` route redirects there).
+- The desktop top nav holds four shared destinations — Markets (`/dashboard`),
+  Leaderboard, Leagues, Activity — and the mobile tab bar carries the same four
+  (Leaderboard as "Ranks") plus Portfolio and Account. Both lists are defined
+  together in `src/components/layout/nav-config.ts`, which states the mirror
+  contract and the deliberate per-surface differences.
+- The avatar menu holds identity plus personal destinations: Your profile,
+  Portfolio, Store, Account, Admin (admins), Send feedback, Sign out. On mobile,
+  Store is also reachable via the balance menu's Gems row and account-page links.
+  Actions live on their pages — proposing a market is a button on `/dashboard`,
+  inviting/vouching is reached from an Account-page card, and bet history is the
+  second tab of `/portfolio` (`?tab=history`; the old `/history` route redirects
+  there).
 - Admin sub-pages (`/admin`, `/admin/markets`, `/admin/members`, `/admin/items`,
   `/admin/feedback`) share a tab-strip nav rendered by `src/app/(app)/admin/layout.tsx`.
 

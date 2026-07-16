@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
-import { CircleUserRound, LogOut, MessageSquarePlus, Shield, User } from "lucide-react";
+import { CircleUserRound, LogOut, MessageSquarePlus, Shield, Store, User, Wallet } from "lucide-react";
 import { FeedbackDialog } from "@/components/layout/feedback-dialog";
 import { MemberAvatar } from "@/components/members/member-avatar";
 import type { FrameStyle } from "@/lib/cosmetics";
@@ -56,6 +56,12 @@ export function UserMenu({
           <p className="px-3 py-2 text-xs font-medium text-faint">{name}</p>
           <Link href={`/u/${username}`} className={itemClass} onClick={() => setOpen(false)}>
             <CircleUserRound className="size-4" /> Your profile
+          </Link>
+          <Link href="/portfolio" className={itemClass} onClick={() => setOpen(false)}>
+            <Wallet className="size-4" /> Portfolio
+          </Link>
+          <Link href="/store" className={itemClass} onClick={() => setOpen(false)}>
+            <Store className="size-4" /> Store
           </Link>
           <Link href="/account" className={itemClass} onClick={() => setOpen(false)}>
             <User className="size-4" /> Account
