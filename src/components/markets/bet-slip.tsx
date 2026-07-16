@@ -288,10 +288,10 @@ export function BetSlip({
 
         {error ? <p className="text-xs text-no">{error}</p> : null}
 
-        <p className="text-[11px] leading-relaxed text-faint">
+        {/* <p className="text-[11px] leading-relaxed text-faint">
           Heads up: the payout above will drift as friends pile in — what you actually win depends on
           where the pools sit when betting closes. And once your points are in, they&apos;re in.
-        </p>
+        </p> */}
       </form>
     </div>
   );
