@@ -37,10 +37,15 @@ export async function TopNav() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-surface/90 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4 sm:px-6">
-        <Link href="/dashboard" className="shrink-0 text-base font-bold tracking-tight">
-          Prolly<span className="text-primary">Market</span>
-        </Link>
+      <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4 sm:gap-4 sm:px-6">
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Link href="/dashboard" className="text-base font-bold tracking-tight">
+            Prolly<span className="text-primary">Market</span>
+          </Link>
+          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+            Beta
+          </span>
+        </div>
 
         <SearchBox />
 

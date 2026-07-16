@@ -1,3 +1,4 @@
+import { BetaNotice } from "@/components/layout/beta-notice";
 import { MobileTabBar } from "@/components/layout/mobile-tab-bar";
 import { TopNav } from "@/components/layout/top-nav";
 
@@ -7,7 +8,10 @@ export default function AppLayout({ children }: Readonly<{ children: React.React
   return (
     <div className="min-h-screen">
       <TopNav />
-      <main className="mx-auto max-w-6xl px-4 py-6 pb-20 sm:px-6 md:pb-10">{children}</main>
+      <main className="mx-auto max-w-6xl px-4 py-6 pb-20 sm:px-6 md:pb-10">
+        <BetaNotice />
+        {children}
+      </main>
       <MobileTabBar />
     </div>
   );
