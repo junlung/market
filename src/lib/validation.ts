@@ -88,6 +88,12 @@ export const resolveMarketSchema = z.object({
   winningOutcomeId: outcomeIdSchema,
   resolutionSource: z.string().trim().min(1, "Resolution source is required.").max(280),
   notes: z.string().trim().max(500).optional(),
+  effectiveCloseAt: localDateTimeSchema.optional(),
+});
+
+export const closeMarketSchema = z.object({
+  marketId: z.string().cuid(),
+  effectiveCloseAt: localDateTimeSchema.optional(),
 });
 
 export const cancelMarketSchema = z.object({

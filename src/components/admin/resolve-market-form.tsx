@@ -7,7 +7,7 @@ import { cancelMarketAction, resolveMarketAction } from "@/app/actions/markets";
 import type { ActionResult } from "@/lib/server/market-service";
 import { outcomeColorBg, outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { Button } from "@/components/ui/button";
-import { FieldError, Label, Textarea } from "@/components/ui/input";
+import { FieldError, Input, Label, Textarea } from "@/components/ui/input";
 import { formatPoints, formatSignedPoints } from "@/lib/format";
 
 const initialState: ActionResult = {};
@@ -28,28 +28,45 @@ export type SettlementPreview = {
     staked: number;
     payout: number;
     profit: number;
+    voidRefund: number;
   }>;
   rake: number;
   dust: number;
   mode: "NORMAL" | "REFUND_ALL" | "EMPTY";
 };
 
+function toInputDateTime(value: Date) {
+  return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
 export function ResolveMarketForm({
   marketId,
   resolutionSource,
   outcomes,
   previews,
+  effectiveCloseAt,
 }: {
   marketId: string;
   resolutionSource: string;
   outcomes: ResolveOutcome[];
   /** Server-computed dry-run settlements, one per outcome. */
   previews: SettlementPreview[];
+  /** The stored betting cutoff, correctable here until resolution. */
+  effectiveCloseAt?: Date | null;
 }) {
   const [resolveState, resolveAction, resolving] = useActionState(resolveMarketAction, initialState);
   const [cancelState, cancelAction, canceling] = useActionState(cancelMarketAction, initialState);
   const [winningOutcomeId, setWinningOutcomeId] = useState<string>(outcomes[0].id);
   const [showDanger, setShowDanger] = useState(false);
+  const [cutoff, setCutoff] = useState(effectiveCloseAt ? toInputDateTime(effectiveCloseAt) : "");
+
+  const cutoffIso = (() => {
+    if (!cutoff) {
+      return "";
+    }
+    const parsed = new Date(cutoff);
+    return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+  })();
 
   const winner = outcomes.find((outcome) => outcome.id === winningOutcomeId)!;
   const preview = previews.find((p) => p.outcomeId === winningOutcomeId);
@@ -124,7 +141,14 @@ export function ResolveMarketForm({
                 <tbody>
                   {preview.rows.map((row) => (
                     <tr key={row.userId} className="border-t border-border">
-                      <td className="py-1.5 font-medium">{row.name}</td>
+                      <td className="py-1.5 font-medium">
+                        {row.name}
+                        {row.voidRefund > 0 ? (
+                          <span className="ml-1 text-[10px] font-semibold uppercase text-warn">
+                            +{formatPoints(row.voidRefund)} void refund
+                          </span>
+                        ) : null}
+                      </td>
                       <td className="py-1.5 text-right tabular-nums">{formatPoints(row.staked)}</td>
                       <td className="py-1.5 text-right tabular-nums">{formatPoints(row.payout)}</td>
                       <td
@@ -143,6 +167,22 @@ export function ResolveMarketForm({
           </div>
         ) : null}
 
+        <div>
+          <Label htmlFor="rf-cutoff">Betting cutoff (optional)</Label>
+          <input type="hidden" name="effectiveCloseAt" value={cutoffIso} />
+          <Input
+            id="rf-cutoff"
+            type="datetime-local"
+            value={cutoff}
+            onChange={(event) => setCutoff(event.target.value)}
+            className="max-w-56"
+          />
+          <p className="mt-1 text-xs text-faint">
+            Bets placed after this moment are voided and refunded — use it when the market closed
+            after the event actually happened. The preview above reflects the saved cutoff, not
+            unsaved edits.
+          </p>
+        </div>
         <div>
           <Label htmlFor="rf-source">Resolution source</Label>
           <Textarea id="rf-source" name="resolutionSource" defaultValue={resolutionSource} required />

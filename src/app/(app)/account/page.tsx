@@ -26,6 +26,7 @@ const TYPE_LABELS: Record<string, string> = {
   BET_PLACED: "Bet placed",
   MARKET_PAYOUT: "Payout",
   MARKET_REFUND: "Refund",
+  BET_VOID_REFUND: "Late bet refund",
 };
 
 export default async function AccountPage() {

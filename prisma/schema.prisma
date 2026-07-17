@@ -34,6 +34,9 @@ enum LedgerEntryType {
   BET_PLACED
   MARKET_PAYOUT
   MARKET_REFUND
+  // returns a bet voided by the effective close cutoff — distinct from
+  // MARKET_REFUND so standings/P&L can exclude the void round-trip
+  BET_VOID_REFUND
 }
 
 // The persistent meta-currency (Phase 3, decision #5): earned from Global
@@ -378,6 +381,11 @@ model Market {
   openedAt     DateTime?
   closedById   String?
   closedAt     DateTime?
+  // when betting *should* have stopped (event markets closed manually after
+  // the fact). Bets with createdAt > effectiveCloseAt are void: excluded from
+  // settlement math and refunded. Null = no backdating. Set at close or
+  // corrected on the resolve form while CLOSED; openedAt ≤ it ≤ closedAt.
+  effectiveCloseAt DateTime?
   resolvedById String?
   resolvedAt   DateTime?
   canceledById String?
@@ -503,13 +511,16 @@ model MarketResolution {
   resolutionSource String
   notes            String?
   // settlement audit — burned points are recorded here, not in the user ledger.
-  // Invariant: winningPool + losingPool === totalPaidOut + rakeAmount + dustAmount,
-  // and Σ Outcome.poolFinal === winningPool + losingPool
+  // Invariant: winningPool + losingPool + voidRefunded === totalPaidOut +
+  // rakeAmount + dustAmount, and Σ Outcome.poolFinal === winningPool + losingPool.
+  // winningPool/losingPool cover valid (non-void) stakes only; voidRefunded is
+  // the total returned for bets past the effective close cutoff (in totalPaidOut).
   winningPool      Int
   losingPool       Int
   rakeAmount       Int
   dustAmount       Int
   totalPaidOut     Int
+  voidRefunded     Int     @default(0)
   // gems minted from this market's rake (Phase 3): Σ RAKE_CONVERSION entries.
   // Invariant: gemsMinted <= rakeAmount (floor rounding drops "gem dust").
   gemsMinted       Int     @default(0)

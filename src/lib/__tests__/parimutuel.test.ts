@@ -4,6 +4,7 @@ import {
   computeCancelRefunds,
   computeRake,
   computeSettlement,
+  computeSettlementWithVoids,
   estimatePayout,
   getOdds,
   type OutcomeStake,
@@ -213,6 +214,111 @@ describe("computeSettlement", () => {
     expect(() =>
       computeSettlement([{ userId: "x", outcomeId: "yes", amount: -5 }], "yes", 500),
     ).toThrow();
+  });
+});
+
+describe("computeSettlementWithVoids", () => {
+  const stakes: OutcomeStake[] = [
+    { userId: "alex", outcomeId: "yes", amount: 300 },
+    { userId: "blair", outcomeId: "yes", amount: 100 },
+    { userId: "casey", outcomeId: "no", amount: 100 },
+  ];
+
+  it("matches plain settlement when nothing is void", () => {
+    expect(computeSettlementWithVoids(stakes, [], "no", 500)).toEqual(
+      computeSettlement(stakes, "no", 500),
+    );
+  });
+
+  it("carves late stakes out of the pools and refunds them flagged voided", () => {
+    // blair's 100 on YES landed after the cutoff: valid market is
+    // alex 300 YES vs casey 100 NO. casey wins 100 + (300 - 15 rake) = 385.
+    const result = computeSettlementWithVoids(
+      stakes,
+      [{ userId: "blair", outcomeId: "yes", amount: 100 }],
+      "no",
+      500,
+    );
+
+    expect(result.mode).toBe("NORMAL");
+    expect(result.winningPool).toBe(100);
+    expect(result.losingPool).toBe(300);
+    expect(result.rake).toBe(15);
+    expect(result.totalIn).toBe(500); // void stake still counted in
+    expect(checkConservation(result)).toBe(true);
+
+    const casey = result.payouts.find((row) => row.userId === "casey")!;
+    expect(casey).toMatchObject({ kind: "PAYOUT", amount: 385, winningStake: 100 });
+    const blair = result.payouts.find((row) => row.userId === "blair")!;
+    expect(blair).toMatchObject({ kind: "REFUND", amount: 100, voided: true, winningStake: 0 });
+    expect(result.payouts.some((row) => row.userId === "alex")).toBe(false);
+  });
+
+  it("gives a user both a payout and a void refund when only part is late", () => {
+    // casey's NO stake is 60 valid + 40 late
+    const result = computeSettlementWithVoids(
+      stakes,
+      [{ userId: "casey", outcomeId: "no", amount: 40 }],
+      "no",
+      0,
+    );
+
+    const rows = result.payouts.filter((row) => row.userId === "casey");
+    expect(rows).toHaveLength(2);
+    const payout = rows.find((row) => row.kind === "PAYOUT")!;
+    const refund = rows.find((row) => row.kind === "REFUND")!;
+    expect(payout.amount).toBe(60 + 400); // whole losing pool, zero rake
+    expect(payout.winningStake).toBe(60);
+    expect(refund).toMatchObject({ amount: 40, voided: true });
+    expect(checkConservation(result)).toBe(true);
+  });
+
+  it("voiding the entire winning pool refunds every valid stake too", () => {
+    // casey (the only NO backer) bet entirely after the cutoff → valid W = 0
+    const result = computeSettlementWithVoids(
+      stakes,
+      [{ userId: "casey", outcomeId: "no", amount: 100 }],
+      "no",
+      500,
+    );
+
+    expect(result.mode).toBe("REFUND_ALL");
+    expect(result.rake).toBe(0);
+    expect(result.totalOut).toBe(500);
+    expect(checkConservation(result)).toBe(true);
+    const casey = result.payouts.find((row) => row.userId === "casey")!;
+    expect(casey.voided).toBe(true);
+    const alex = result.payouts.find((row) => row.userId === "alex")!;
+    expect(alex).toMatchObject({ kind: "REFUND", amount: 300 });
+    expect(alex.voided).toBeUndefined();
+  });
+
+  it("voiding every stake refunds everyone as voided, never EMPTY", () => {
+    const result = computeSettlementWithVoids(stakes, stakes, "no", 500);
+    expect(result.mode).toBe("REFUND_ALL");
+    expect(result.totalIn).toBe(500);
+    expect(result.totalOut).toBe(500);
+    expect(result.payouts.every((row) => row.voided)).toBe(true);
+    expect(checkConservation(result)).toBe(true);
+  });
+
+  it("rejects a carve-out larger than the stake it voids", () => {
+    expect(() =>
+      computeSettlementWithVoids(
+        stakes,
+        [{ userId: "casey", outcomeId: "no", amount: 101 }],
+        "no",
+        500,
+      ),
+    ).toThrow(/exceeds/i);
+    expect(() =>
+      computeSettlementWithVoids(
+        stakes,
+        [{ userId: "dana", outcomeId: "no", amount: 1 }],
+        "no",
+        500,
+      ),
+    ).toThrow(/exceeds/i);
   });
 });
 

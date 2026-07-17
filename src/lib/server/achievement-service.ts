@@ -56,7 +56,9 @@ export async function getUserResolvedHistory(userId: string): Promise<ResolvedMa
     select: {
       outcomeId: true,
       marketId: true,
-      market: { select: { resolvedAt: true, winningOutcomeId: true, category: true } },
+      market: {
+        select: { resolvedAt: true, winningOutcomeId: true, category: true, effectiveCloseAt: true },
+      },
     },
   });
 
@@ -66,7 +68,13 @@ export async function getUserResolvedHistory(userId: string): Promise<ResolvedMa
 
   const byMarket = new Map<
     string,
-    { resolvedAt: Date; winningOutcomeId: string | null; won: boolean; category: string }
+    {
+      resolvedAt: Date;
+      winningOutcomeId: string | null;
+      won: boolean;
+      category: string;
+      effectiveCloseAt: Date | null;
+    }
   >();
   for (const stake of stakes) {
     const entry = byMarket.get(stake.marketId) ?? {
@@ -75,6 +83,7 @@ export async function getUserResolvedHistory(userId: string): Promise<ResolvedMa
       winningOutcomeId: stake.market.winningOutcomeId,
       won: false,
       category: stake.market.category,
+      effectiveCloseAt: stake.market.effectiveCloseAt,
     };
     if (stake.outcomeId === stake.market.winningOutcomeId) {
       entry.won = true;
@@ -95,11 +104,17 @@ export async function getUserResolvedHistory(userId: string): Promise<ResolvedMa
         amount: true,
         outcomePoolAfter: true,
         totalPoolAfter: true,
+        createdAt: true,
       },
     });
     for (const bet of bets) {
       const market = byMarket.get(bet.marketId);
       if (!market || bet.outcomeId !== market.winningOutcomeId) {
+        continue;
+      }
+      // bets past the effective close cutoff were voided and refunded — they
+      // can't set the longshot probability
+      if (market.effectiveCloseAt && bet.createdAt > market.effectiveCloseAt) {
         continue;
       }
       const prob = preBetImpliedProb(bet);

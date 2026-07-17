@@ -12,7 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { ensureWeeklyAllowance } from "@/lib/server/allowance-service";
 import { placeBet } from "@/lib/server/bet-service";
 import { ensureGlobalLeague, ensureLeagueMembership } from "@/lib/server/league-service";
-import { cancelMarket, resolveMarket } from "@/lib/server/market-service";
+import { cancelMarket, closeMarket, resolveMarket } from "@/lib/server/market-service";
 import { approveUser, rejectUser } from "@/lib/server/member-service";
 
 const enabled = process.env.INTEGRATION_TESTS === "1";
@@ -385,5 +385,121 @@ describe.skipIf(!enabled)("economy integration", () => {
       data: { closeTime: new Date(Date.now() - 1000) },
     });
     await expect(bet(user.id, market.id, yes.id, 10)).rejects.toThrow(/close/i);
+  });
+
+  describe("effective close cutoff", () => {
+    it("voids and refunds late bets at settlement, with full conservation", async () => {
+      const admin = await createUser(0, UserRole.ADMIN);
+      const alex = await createUser(300); // on-time YES backer, loses
+      const casey = await createUser(100); // on-time NO backer, wins
+      const dana = await createUser(100); // bets NO entirely after the event
+      const market = await createOpenMarket(admin.id, { rakeBps: 500 });
+      const [yes, no] = market.outcomes;
+
+      await bet(alex.id, market.id, yes.id, 300);
+      await bet(casey.id, market.id, no.id, 100);
+
+      // the event happens; dana snipes NO before the manual close
+      const cutoff = new Date();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await bet(dana.id, market.id, no.id, 100);
+
+      await closeMarket(market.id, admin.id, cutoff);
+      await resolveMarket(market.id, admin.id, no.id, "test");
+
+      // valid market: alex 300 YES vs casey 100 NO → casey wins 100 + 285
+      expect(await userBalance(casey.id)).toBe(385);
+      expect(await userBalance(alex.id)).toBe(0);
+      // dana is made whole via a BET_VOID_REFUND entry
+      expect(await userBalance(dana.id)).toBe(100);
+      const danaRefund = await prisma.ledgerEntry.findFirst({
+        where: { userId: dana.id, marketId: market.id, type: LedgerEntryType.BET_VOID_REFUND },
+      });
+      expect(danaRefund?.amount).toBe(100);
+
+      // audit row: W + L + voidRefunded === paidOut + rake + dust
+      const resolution = await prisma.marketResolution.findUniqueOrThrow({
+        where: { marketId: market.id },
+      });
+      expect(resolution.voidRefunded).toBe(100);
+      expect(resolution.winningPool).toBe(100);
+      expect(resolution.losingPool).toBe(300);
+      expect(resolution.winningPool + resolution.losingPool + resolution.voidRefunded).toBe(
+        resolution.totalPaidOut + resolution.rakeAmount + resolution.dustAmount,
+      );
+
+      // pools froze at valid amounts and dana's stake row is gone
+      const outcomes = await prisma.outcome.findMany({
+        where: { marketId: market.id },
+        orderBy: { sortOrder: "asc" },
+      });
+      expect(outcomes.map((outcome) => outcome.poolFinal)).toEqual([300, 100]);
+      expect(
+        await prisma.poolStake.count({ where: { marketId: market.id, userId: dana.id } }),
+      ).toBe(0);
+    });
+
+    it("partial voids split one user into payout plus refund", async () => {
+      const admin = await createUser(0, UserRole.ADMIN);
+      const alex = await createUser(200);
+      const casey = await createUser(200);
+      const market = await createOpenMarket(admin.id, { rakeBps: 0 });
+      const [yes, no] = market.outcomes;
+
+      await bet(alex.id, market.id, yes.id, 200);
+      await bet(casey.id, market.id, no.id, 60);
+      const cutoff = new Date();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await bet(casey.id, market.id, no.id, 40); // late top-up
+
+      await closeMarket(market.id, admin.id, cutoff);
+      await resolveMarket(market.id, admin.id, no.id, "test");
+
+      // casey: 60 valid wins the whole 200 losing pool + 40 refunded = 300 out
+      expect(await userBalance(casey.id)).toBe(200 - 100 + 260 + 40);
+      const caseyEntries = await prisma.ledgerEntry.findMany({
+        where: { userId: casey.id, marketId: market.id },
+        orderBy: { createdAt: "asc" },
+      });
+      const types = caseyEntries.map((entry) => entry.type);
+      expect(types).toContain(LedgerEntryType.MARKET_PAYOUT);
+      expect(types).toContain(LedgerEntryType.BET_VOID_REFUND);
+      // stake row shrank to the valid amount
+      const stake = await prisma.poolStake.findFirst({
+        where: { marketId: market.id, userId: casey.id, outcomeId: no.id },
+      });
+      expect(stake?.amount).toBe(60);
+    });
+
+    it("validates the cutoff window at close and allows correcting it at resolve", async () => {
+      const admin = await createUser(0, UserRole.ADMIN);
+      const market = await createOpenMarket(admin.id);
+
+      await expect(
+        closeMarket(market.id, admin.id, new Date(Date.now() - 24 * 60 * 60 * 1000)),
+      ).rejects.toThrow(/before the market opened/i);
+      await expect(
+        closeMarket(market.id, admin.id, new Date(Date.now() + 60 * 60 * 1000)),
+      ).rejects.toThrow(/after the market closed/i);
+
+      const corrected = new Date();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await closeMarket(market.id, admin.id);
+      await expect(
+        resolveMarket(
+          market.id,
+          admin.id,
+          market.outcomes[0].id,
+          "test",
+          undefined,
+          new Date(Date.now() + 60 * 60 * 1000),
+        ),
+      ).rejects.toThrow(/after the market closed/i);
+
+      // a valid correction sticks (nothing staked — settlement is EMPTY)
+      await resolveMarket(market.id, admin.id, market.outcomes[0].id, "test", undefined, corrected);
+      const resolved = await prisma.market.findUniqueOrThrow({ where: { id: market.id } });
+      expect(resolved.effectiveCloseAt?.getTime()).toBe(corrected.getTime());
+    });
   });
 });

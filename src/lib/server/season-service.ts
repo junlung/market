@@ -121,6 +121,8 @@ export async function getSeasonStandings(season: SeasonRef): Promise<SeasonStand
       type: true,
       amount: true,
       user: { select: { name: true, username: true } },
+      bet: { select: { createdAt: true } },
+      market: { select: { effectiveCloseAt: true } },
     },
   });
 
@@ -135,6 +137,17 @@ export async function getSeasonStandings(season: SeasonRef): Promise<SeasonStand
   const byUser = new Map<string, Accumulator>();
 
   for (const entry of entries) {
+    // bets past the effective close cutoff were voided and refunded
+    // (BET_VOID_REFUND, not selected here) — the matching BET_PLACED must
+    // vanish too, so a fully-void position never counts as participation
+    if (
+      entry.type === LedgerEntryType.BET_PLACED &&
+      entry.market?.effectiveCloseAt &&
+      entry.bet &&
+      entry.bet.createdAt > entry.market.effectiveCloseAt
+    ) {
+      continue;
+    }
     const row = byUser.get(entry.userId) ?? {
       userId: entry.userId,
       name: entry.user.name,

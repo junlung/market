@@ -24,7 +24,7 @@ import {
   assertSafeInt,
   checkConservation,
   computeCancelRefunds,
-  computeSettlement,
+  computeSettlementWithVoids,
   estimatePayout,
   type OutcomeStake,
   type SettlementResult,
@@ -486,11 +486,34 @@ export async function openMarket(marketId: string, adminId: string) {
   await logAdminAction(`Opened market: ${market.title}`, adminId, marketId);
 }
 
-export async function closeMarket(marketId: string, adminId: string) {
+/**
+ * The effective cutoff must fall inside the market's open window — before the
+ * open it voids everything, after the close it voids nothing.
+ */
+function assertEffectiveCloseBounds(
+  market: { openedAt: Date | null; createdAt: Date; closedAt: Date | null },
+  effectiveCloseAt: Date,
+  closedAt: Date,
+) {
+  const openedAt = market.openedAt ?? market.createdAt;
+  if (effectiveCloseAt.getTime() < openedAt.getTime()) {
+    throw new Error("The effective close can't be before the market opened.");
+  }
+  if (effectiveCloseAt.getTime() > closedAt.getTime()) {
+    throw new Error("The effective close can't be after the market closed.");
+  }
+}
+
+export async function closeMarket(marketId: string, adminId: string, effectiveCloseAt?: Date) {
   const market = await prisma.market.findUniqueOrThrow({ where: { id: marketId } });
 
   if (market.status !== MarketStatus.OPEN) {
     throw new Error("Only open markets can be closed.");
+  }
+
+  const closedAt = new Date();
+  if (effectiveCloseAt) {
+    assertEffectiveCloseBounds(market, effectiveCloseAt, closedAt);
   }
 
   await prisma.market.update({
@@ -498,11 +521,18 @@ export async function closeMarket(marketId: string, adminId: string) {
     data: {
       status: MarketStatus.CLOSED,
       closedById: adminId,
-      closedAt: new Date(),
+      closedAt,
+      ...(effectiveCloseAt ? { effectiveCloseAt } : {}),
     },
   });
 
-  await logAdminAction(`Closed market: ${market.title}`, adminId, marketId);
+  await logAdminAction(
+    effectiveCloseAt
+      ? `Closed market: ${market.title} (betting cutoff backdated to ${effectiveCloseAt.toISOString()})`
+      : `Closed market: ${market.title}`,
+    adminId,
+    marketId,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -525,6 +555,8 @@ async function writeSettlement(input: {
   resolutionSource: string;
   notes?: string;
   toStatus: MarketStatus;
+  /** set/correct the betting cutoff at resolve time; undefined keeps the stored value */
+  effectiveCloseAt?: Date;
 }) {
   return withSerializableRetry(async (tx) => {
     const market = await tx.market.findUnique({
@@ -578,9 +610,36 @@ async function writeSettlement(input: {
       throw new Error("A stake row points at an outcome outside this market.");
     }
 
+    // effective close cutoff: bets after it are void — carved out of the
+    // settlement math and refunded. Cancels refund everything anyway.
+    let effectiveCloseAt = market.effectiveCloseAt;
+    if (!canceling && input.effectiveCloseAt !== undefined) {
+      assertEffectiveCloseBounds(market, input.effectiveCloseAt, market.closedAt ?? new Date());
+      effectiveCloseAt = input.effectiveCloseAt;
+    }
+
+    let voidStakes: OutcomeStake[] = [];
+    if (!canceling && effectiveCloseAt) {
+      const lateBets = await tx.bet.findMany({
+        where: { marketId: input.marketId, createdAt: { gt: effectiveCloseAt } },
+        select: { userId: true, outcomeId: true, amount: true },
+      });
+      const byKey = new Map<string, OutcomeStake>();
+      for (const bet of lateBets) {
+        const key = `${bet.userId}:${bet.outcomeId}`;
+        const row = byKey.get(key) ?? { userId: bet.userId, outcomeId: bet.outcomeId, amount: 0 };
+        row.amount += bet.amount;
+        byKey.set(key, row);
+      }
+      voidStakes = [...byKey.values()];
+    }
+
     const result: SettlementResult = canceling
       ? computeCancelRefunds(stakes)
-      : computeSettlement(stakes, input.winningOutcomeId!, market.rakeBps);
+      : computeSettlementWithVoids(stakes, voidStakes, input.winningOutcomeId!, market.rakeBps);
+    const voidRefunded = result.payouts
+      .filter((payout) => payout.voided)
+      .reduce((sum, payout) => sum + payout.amount, 0);
 
     // conservation is re-checked at runtime before anything is written —
     // a math regression aborts the transaction instead of corrupting the ledger
@@ -600,10 +659,15 @@ async function writeSettlement(input: {
           leagueId: market.leagueId,
           seasonId: market.seasonId,
           marketId: input.marketId,
-          type: payout.kind === "REFUND" ? LedgerEntryType.MARKET_REFUND : LedgerEntryType.MARKET_PAYOUT,
+          type: payout.voided
+            ? LedgerEntryType.BET_VOID_REFUND
+            : payout.kind === "REFUND"
+              ? LedgerEntryType.MARKET_REFUND
+              : LedgerEntryType.MARKET_PAYOUT,
           amount: payout.amount,
-          description:
-            payout.kind === "REFUND"
+          description: payout.voided
+            ? `Late bet refund (after betting cutoff): ${market.title}`
+            : payout.kind === "REFUND"
               ? `Refund: ${market.title}`
               : `Payout for ${winningOutcome!.label} — ${market.title}`,
         })),
@@ -643,11 +707,44 @@ async function writeSettlement(input: {
       });
     }
 
-    // freeze the pools so the settlement audit stays in typed ints
+    // Void portions come out of the stake rows so post-settlement reads
+    // (standings participation, achievements, notifications) see valid
+    // stakes only. A fully-void user ends with no rows — no participation.
+    const voidByOutcome = new Map<string, number>();
+    for (const voidStake of voidStakes) {
+      voidByOutcome.set(
+        voidStake.outcomeId,
+        (voidByOutcome.get(voidStake.outcomeId) ?? 0) + voidStake.amount,
+      );
+      const stakeRow = stakes.find(
+        (stake) => stake.userId === voidStake.userId && stake.outcomeId === voidStake.outcomeId,
+      )!;
+      const validAmount = stakeRow.amount - voidStake.amount;
+      const where = {
+        userId_marketId_outcomeId: {
+          userId: voidStake.userId,
+          marketId: input.marketId,
+          outcomeId: voidStake.outcomeId,
+        },
+      };
+      if (validAmount === 0) {
+        await tx.poolStake.delete({ where }); // rows exist only where amount > 0
+      } else {
+        await tx.poolStake.update({ where, data: { amount: validAmount } });
+      }
+    }
+
+    // freeze the *valid* pools so the settlement audit stays in typed ints:
+    // Σ poolFinal === winningPool + losingPool (void stakes live in voidRefunded)
     for (const outcome of market.outcomes) {
       await tx.outcome.update({
         where: { id: outcome.id },
-        data: { poolFinal: outcome.pool },
+        data: {
+          poolFinal: outcome.pool - (voidByOutcome.get(outcome.id) ?? 0),
+          ...(voidByOutcome.has(outcome.id)
+            ? { pool: outcome.pool - (voidByOutcome.get(outcome.id) ?? 0) }
+            : {}),
+        },
       });
     }
 
@@ -656,6 +753,7 @@ async function writeSettlement(input: {
       data: {
         status: input.toStatus,
         winningOutcomeId: input.winningOutcomeId,
+        ...(canceling ? {} : { effectiveCloseAt }),
         ...(input.toStatus === MarketStatus.RESOLVED
           ? {
               closedAt: market.closedAt ?? new Date(),
@@ -683,6 +781,7 @@ async function writeSettlement(input: {
         rakeAmount: result.rake,
         dustAmount: result.dust,
         totalPaidOut: result.totalOut,
+        voidRefunded,
         gemsMinted: gemSplit ? gemSplit.rake - gemSplit.gemDust : 0,
         createdById: input.adminId,
       },
@@ -698,6 +797,7 @@ export async function resolveMarket(
   winningOutcomeId: string,
   resolutionSource: string,
   notes?: string,
+  effectiveCloseAt?: Date,
 ) {
   const market = await prisma.market.findUniqueOrThrow({
     where: { id: marketId },
@@ -711,6 +811,7 @@ export async function resolveMarket(
     resolutionSource,
     notes,
     toStatus: MarketStatus.RESOLVED,
+    effectiveCloseAt,
   });
 
   const winnerLabel =
@@ -753,10 +854,16 @@ export async function resolveMarket(
     for (const stake of stakes) {
       stakedByUser.set(stake.userId, (stakedByUser.get(stake.userId) ?? 0) + stake.amount);
     }
-    const payoutByUser = new Map(result.payouts.map((payout) => [payout.userId, payout]));
+    // valid-settlement money only — void refunds are neither profit nor loss
+    const payoutByUser = new Map<string, number>();
+    const voidedByUser = new Map<string, number>();
+    for (const payout of result.payouts) {
+      const target = payout.voided ? voidedByUser : payoutByUser;
+      target.set(payout.userId, (target.get(payout.userId) ?? 0) + payout.amount);
+    }
 
     for (const [userId, staked] of stakedByUser) {
-      const payout = payoutByUser.get(userId)?.amount ?? 0;
+      const payout = payoutByUser.get(userId) ?? 0;
       const profit = payout - staked;
       await emitNotification({
         userId,
@@ -766,6 +873,20 @@ export async function resolveMarket(
         href: marketPath(market.league, marketId),
         dedupeKey: `market-settled:${marketId}:user:${userId}`,
         metadata: { marketId, staked, payout, profit },
+      });
+    }
+
+    // bettors whose late stakes were voided (the stake rows above are already
+    // post-carve-out, so a fully-void bettor appears only here)
+    for (const [userId, refunded] of voidedByUser) {
+      await emitNotification({
+        userId,
+        type: NotificationType.MARKET_RESOLVED,
+        title: `Late bet refunded: ${market.title}`,
+        body: `${formatPoints(refunded)} pts placed after the betting cutoff were voided and refunded.`,
+        href: marketPath(market.league, marketId),
+        dedupeKey: `market-late-refund:${marketId}:user:${userId}`,
+        metadata: { marketId, refunded },
       });
     }
   } catch (error) {
@@ -830,10 +951,13 @@ export async function cancelMarket(marketId: string, adminId: string, reason: st
 export type SettlementPreviewRow = {
   userId: string;
   name: string;
+  /** valid (non-void) points staked */
   staked: number;
   winningStake: number;
   payout: number;
   profit: number;
+  /** points placed after the betting cutoff, returned separately from P&L */
+  voidRefund: number;
 };
 
 /** Dry-run settlement for the admin resolve form — computes payouts without writing. */
@@ -852,12 +976,42 @@ export async function previewSettlement(marketId: string, winningOutcomeId: stri
     include: { user: { select: { name: true } } },
   });
 
-  const result = computeSettlement(toOutcomeStakes(stakes), winningOutcomeId, market.rakeBps);
-  const payoutByUser = new Map(result.payouts.map((payout) => [payout.userId, payout]));
+  // mirror the settlement's void carve-out so the preview shows valid stakes
+  // only; void refunds are listed separately by the resolve form
+  const voidByKey = new Map<string, number>();
+  if (market.effectiveCloseAt) {
+    const lateBets = await prisma.bet.findMany({
+      where: { marketId, createdAt: { gt: market.effectiveCloseAt } },
+      select: { userId: true, outcomeId: true, amount: true },
+    });
+    for (const bet of lateBets) {
+      const key = `${bet.userId}:${bet.outcomeId}`;
+      voidByKey.set(key, (voidByKey.get(key) ?? 0) + bet.amount);
+    }
+  }
+  const voidStakes: OutcomeStake[] = [...voidByKey.entries()].map(([key, amount]) => {
+    const [userId, outcomeId] = key.split(":");
+    return { userId, outcomeId, amount };
+  });
+
+  const result = computeSettlementWithVoids(
+    toOutcomeStakes(stakes),
+    voidStakes,
+    winningOutcomeId,
+    market.rakeBps,
+  );
+  const payoutByUser = new Map<string, number>();
+  const voidedByUser = new Map<string, number>();
+  for (const payout of result.payouts) {
+    const target = payout.voided ? voidedByUser : payoutByUser;
+    target.set(payout.userId, (target.get(payout.userId) ?? 0) + payout.amount);
+  }
 
   const byUser = new Map<string, SettlementPreviewRow>();
   for (const stake of stakes) {
-    if (stake.amount === 0) {
+    const voidAmount = voidByKey.get(`${stake.userId}:${stake.outcomeId}`) ?? 0;
+    const validAmount = stake.amount - voidAmount;
+    if (validAmount <= 0) {
       continue;
     }
     const row = byUser.get(stake.userId) ?? {
@@ -867,17 +1021,37 @@ export async function previewSettlement(marketId: string, winningOutcomeId: stri
       winningStake: 0,
       payout: 0,
       profit: 0,
+      voidRefund: 0,
     };
-    row.staked += stake.amount;
+    row.staked += validAmount;
     if (stake.outcomeId === winningOutcomeId) {
-      row.winningStake += stake.amount;
+      row.winningStake += validAmount;
     }
     byUser.set(stake.userId, row);
   }
 
+  // fully-void bettors still deserve a line — refund only, no P&L
+  for (const [userId, refunded] of voidedByUser) {
+    const existing = byUser.get(userId);
+    if (existing) {
+      existing.voidRefund = refunded;
+    } else {
+      const stake = stakes.find((row) => row.userId === userId);
+      byUser.set(userId, {
+        userId,
+        name: stake?.user.name ?? userId,
+        staked: 0,
+        winningStake: 0,
+        payout: 0,
+        profit: 0,
+        voidRefund: refunded,
+      });
+    }
+  }
+
   const rows = [...byUser.values()]
     .map((row) => {
-      const payout = payoutByUser.get(row.userId)?.amount ?? 0;
+      const payout = payoutByUser.get(row.userId) ?? 0;
       return { ...row, payout, profit: payout - row.staked };
     })
     .sort((a, b) => b.payout - a.payout || a.name.localeCompare(b.name));
@@ -1029,7 +1203,13 @@ export async function getMarketDetail(marketId: string, userId: string) {
       },
       ledgerEntries: {
         where: {
-          type: { in: [LedgerEntryType.MARKET_PAYOUT, LedgerEntryType.MARKET_REFUND] },
+          type: {
+            in: [
+              LedgerEntryType.MARKET_PAYOUT,
+              LedgerEntryType.MARKET_REFUND,
+              LedgerEntryType.BET_VOID_REFUND,
+            ],
+          },
         },
         select: { userId: true, type: true, amount: true },
       },
@@ -1142,6 +1322,13 @@ export async function getMarketDetail(marketId: string, userId: string) {
     }))
     .filter((stake) => stake.amount > 0);
 
+  // points the viewer placed after the betting cutoff — void, refunded at settlement
+  const viewerVoidAmount = market.effectiveCloseAt
+    ? market.bets
+        .filter((bet) => bet.userId === userId && bet.createdAt > market.effectiveCloseAt!)
+        .reduce((sum, bet) => sum + bet.amount, 0)
+    : 0;
+
   return {
     id: market.id,
     league: market.league,
@@ -1150,6 +1337,8 @@ export async function getMarketDetail(marketId: string, userId: string) {
     description: market.description,
     category: market.category,
     closeTime: market.closeTime,
+    effectiveCloseAt: market.effectiveCloseAt,
+    viewerVoidAmount,
     resolveTime: market.resolveTime,
     resolutionSource: market.resolutionSource,
     status: market.status,
@@ -1416,7 +1605,8 @@ export async function getLeaderboard() {
       sumOf(LedgerEntryType.WEEKLY_ALLOWANCE) +
       sumOf(LedgerEntryType.BET_PLACED) +
       sumOf(LedgerEntryType.MARKET_PAYOUT) +
-      sumOf(LedgerEntryType.MARKET_REFUND);
+      sumOf(LedgerEntryType.MARKET_REFUND) +
+      sumOf(LedgerEntryType.BET_VOID_REFUND);
     const atRisk = atRiskByUser.get(user.id) ?? 0;
     const granted = sumOf(LedgerEntryType.INITIAL_GRANT) + sumOf(LedgerEntryType.WEEKLY_ALLOWANCE);
 

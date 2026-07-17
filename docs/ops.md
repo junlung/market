@@ -74,11 +74,12 @@ JOIN "League" lg ON lg.id = l."leagueId"
 WHERE lg."isGlobal" = true
 GROUP BY u.username ORDER BY balance DESC;
 
--- Settlement conservation: every row must show in = out + rake + dust
-SELECT "marketId", "winningPool" + "losingPool" AS total_in,
+-- Settlement conservation: every row must show in (+ void refunds) = out + rake + dust
+SELECT "marketId", "winningPool" + "losingPool" + "voidRefunded" AS total_in,
        "totalPaidOut" + "rakeAmount" + "dustAmount" AS accounted
 FROM "MarketResolution"
-WHERE "winningPool" + "losingPool" <> "totalPaidOut" + "rakeAmount" + "dustAmount";
+WHERE "winningPool" + "losingPool" + "voidRefunded"
+      <> "totalPaidOut" + "rakeAmount" + "dustAmount";
 
 -- Gem wallets and mint/burn breakdown
 SELECT type, COUNT(*), SUM(amount) FROM "GemLedgerEntry" GROUP BY type;

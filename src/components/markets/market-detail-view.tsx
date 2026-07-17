@@ -15,6 +15,7 @@ import { BetSlip } from "@/components/markets/bet-slip";
 import { CommentThread } from "@/components/markets/comment-thread";
 import { OddsChart } from "@/components/markets/odds-chart";
 import { OutcomeDot } from "@/components/markets/outcome-dot";
+import { CloseMarketForm } from "@/components/markets/close-market-form";
 import { PositionsTable } from "@/components/markets/positions-table";
 import { ViewerPositionCard } from "@/components/markets/viewer-position";
 import { Button } from "@/components/ui/button";
@@ -155,17 +156,12 @@ export async function MarketDetailView({ marketId, side, outcomeParam, expectedL
         </form>
       ) : null}
       {market.status === MarketStatus.OPEN ? (
-        <form action={marketStatusAction}>
-          <input type="hidden" name="marketId" value={market.id} />
-          <input type="hidden" name="action" value="close" />
-          <Button type="submit" variant="secondary" size="sm">
-            Close betting now
-          </Button>
-        </form>
+        <CloseMarketForm marketId={market.id} size="sm" />
       ) : null}
       {resolvable ? (
         <ResolveMarketForm
           marketId={market.id}
+          effectiveCloseAt={market.effectiveCloseAt}
           resolutionSource={market.resolutionSource}
           outcomes={market.outcomes.map((outcome) => ({
             id: outcome.id,
@@ -240,6 +236,7 @@ export async function MarketDetailView({ marketId, side, outcomeParam, expectedL
         stakes={market.viewerStakes}
         outcomes={market.outcomes}
         rakeBps={market.rakeBps}
+        voidAmount={market.viewerVoidAmount}
       />
     ) : null;
 

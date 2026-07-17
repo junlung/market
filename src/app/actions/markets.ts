@@ -154,7 +154,12 @@ export async function marketStatusAction(formData: FormData) {
   }
 
   if (action === "close") {
-    await closeMarket(marketId, session.user.id);
+    const rawCutoff = String(formData.get("effectiveCloseAt") ?? "").trim();
+    const cutoff = rawCutoff ? new Date(rawCutoff) : undefined;
+    if (cutoff && Number.isNaN(cutoff.getTime())) {
+      return;
+    }
+    await closeMarket(marketId, session.user.id, cutoff);
   }
 
   invalidateAppData();
@@ -168,6 +173,7 @@ export async function resolveMarketAction(_: ActionResult, formData: FormData): 
     winningOutcomeId: formData.get("winningOutcomeId"),
     resolutionSource: formData.get("resolutionSource"),
     notes: formData.get("notes") || undefined,
+    effectiveCloseAt: formData.get("effectiveCloseAt") || undefined,
   });
 
   if (!parsed.success) {
@@ -182,6 +188,7 @@ export async function resolveMarketAction(_: ActionResult, formData: FormData): 
       parsed.data.winningOutcomeId,
       parsed.data.resolutionSource,
       parsed.data.notes,
+      parsed.data.effectiveCloseAt ? new Date(parsed.data.effectiveCloseAt) : undefined,
     );
     invalidateAppData();
     revalidatePath(`/admin/markets/${parsed.data.marketId}`);

@@ -12,6 +12,10 @@ export type PayoutRow = {
   // the user's stake on the winning outcome — the pro-rata basis for the
   // rake→gems conversion (Phase 3). Always 0 on REFUND rows.
   winningStake: number;
+  // true on REFUND rows that return stakes voided by the effective close
+  // cutoff (bets placed after the event). A user can hold a PAYOUT row and a
+  // voided REFUND row in the same settlement.
+  voided?: boolean;
 };
 
 export type SettlementMode = "NORMAL" | "REFUND_ALL" | "EMPTY";
@@ -214,6 +218,91 @@ export function computeSettlement(
     dust,
     totalIn,
     totalOut,
+  };
+
+  if (!checkConservation(result)) {
+    throw new Error("Settlement failed conservation check.");
+  }
+
+  return result;
+}
+
+/**
+ * Settlement with an effective-close carve-out: `voidStakes` is the portion
+ * of each (user, outcome) stake placed after the cutoff. The valid remainder
+ * settles normally — odds, rake, and gem conversion all compute from valid
+ * stakes only — and every void portion comes back as a REFUND row flagged
+ * `voided`. Conservation covers both parts: totalIn (all stakes) ===
+ * totalOut (payouts + all refunds) + rake + dust.
+ */
+export function computeSettlementWithVoids(
+  stakes: OutcomeStake[],
+  voidStakes: OutcomeStake[],
+  winningOutcomeId: string,
+  rakeBps: number,
+): SettlementResult {
+  if (voidStakes.length === 0) {
+    return computeSettlement(stakes, winningOutcomeId, rakeBps);
+  }
+  validateStakes(stakes);
+  validateStakes(voidStakes);
+
+  const stakeByKey = new Map<string, number>();
+  for (const row of stakes) {
+    const key = `${row.userId}\u0000${row.outcomeId}`;
+    stakeByKey.set(key, (stakeByKey.get(key) ?? 0) + row.amount);
+  }
+
+  const voidByKey = new Map<string, number>();
+  for (const row of voidStakes) {
+    const key = `${row.userId}\u0000${row.outcomeId}`;
+    voidByKey.set(key, (voidByKey.get(key) ?? 0) + row.amount);
+  }
+  for (const [key, amount] of voidByKey) {
+    if (amount > (stakeByKey.get(key) ?? 0)) {
+      throw new Error("A void carve-out exceeds the stake it voids.");
+    }
+  }
+
+  // subtract each void portion once, walking rows in order (aggregate rows
+  // are unique per user+outcome in practice, but stay correct regardless)
+  const remainingVoid = new Map(voidByKey);
+  const validStakes: OutcomeStake[] = [];
+  for (const row of stakes) {
+    const key = `${row.userId}\u0000${row.outcomeId}`;
+    const voidHere = Math.min(remainingVoid.get(key) ?? 0, row.amount);
+    if (voidHere > 0) {
+      remainingVoid.set(key, (remainingVoid.get(key) ?? 0) - voidHere);
+    }
+    if (row.amount - voidHere > 0) {
+      validStakes.push({ ...row, amount: row.amount - voidHere });
+    }
+  }
+
+  const base = computeSettlement(validStakes, winningOutcomeId, rakeBps);
+
+  const voidByUser = new Map<string, number>();
+  for (const [key, amount] of voidByKey) {
+    const userId = key.split("\u0000")[0];
+    voidByUser.set(userId, (voidByUser.get(userId) ?? 0) + amount);
+  }
+  const voidRows: PayoutRow[] = [...voidByUser.entries()]
+    .filter(([, amount]) => amount > 0)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([userId, amount]) => ({ userId, amount, kind: "REFUND", winningStake: 0, voided: true }));
+  const voidTotal = voidRows.reduce((sum, row) => sum + row.amount, 0);
+
+  const result: SettlementResult = {
+    // money moved even when every valid stake is gone — that's a refund, not
+    // an empty market
+    mode: base.mode === "EMPTY" ? "REFUND_ALL" : base.mode,
+    payouts: [...base.payouts, ...voidRows],
+    winningPool: base.winningPool,
+    losingPool: base.losingPool,
+    rake: base.rake,
+    dust: base.dust,
+    totalIn: base.totalIn + voidTotal,
+    totalOut: base.totalOut + voidTotal,
   };
 
   if (!checkConservation(result)) {

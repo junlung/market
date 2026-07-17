@@ -10,10 +10,13 @@ export function ViewerPositionCard({
   stakes,
   outcomes,
   rakeBps,
+  voidAmount = 0,
 }: {
   stakes: Array<{ outcomeId: string; amount: number }>;
   outcomes: Array<{ id: string; label: string; color: string; emoji?: string | null; pool: number }>;
   rakeBps: number;
+  /** points placed after the betting cutoff — void, refunded at settlement */
+  voidAmount?: number;
 }) {
   const pot = outcomes.reduce((sum, outcome) => sum + outcome.pool, 0);
 
@@ -58,6 +61,12 @@ export function ViewerPositionCard({
           </div>
         ))}
       </div>
+      {voidAmount > 0 ? (
+        <p className="mt-2.5 rounded-md bg-warn/10 p-2 text-xs font-medium text-warn">
+          {formatPoints(voidAmount)} pts placed after the betting cutoff are void — they'll be
+          refunded at settlement and pay nothing.
+        </p>
+      ) : null}
       <p className="mt-2.5 border-t border-border pt-2 text-[11px] text-faint">
         Based on the pools right now — the real number is whatever they are at close.
       </p>

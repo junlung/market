@@ -5,6 +5,7 @@ import { MarketStatus } from "@prisma/client";
 import clsx from "clsx";
 import { marketStatusAction, updateMarketAction } from "@/app/actions/markets";
 import { MarketForm } from "@/components/admin/market-form";
+import { CloseMarketForm } from "@/components/markets/close-market-form";
 import { ProposalReview } from "@/components/admin/proposal-review";
 import { ResolveMarketForm, type SettlementPreview } from "@/components/admin/resolve-market-form";
 import { OutcomeDot } from "@/components/markets/outcome-dot";
@@ -130,13 +131,7 @@ export default async function AdminMarketDetailPage({ params }: Props) {
           </form>
         ) : null}
         {market.status === MarketStatus.OPEN ? (
-          <form action={marketStatusAction}>
-            <input type="hidden" name="marketId" value={market.id} />
-            <input type="hidden" name="action" value="close" />
-            <button type="submit" className={buttonClasses("secondary", "md")}>
-              Close betting
-            </button>
-          </form>
+          <CloseMarketForm marketId={market.id} />
         ) : null}
       </div>
 
@@ -292,6 +287,7 @@ export default async function AdminMarketDetailPage({ params }: Props) {
           {resolvable ? (
             <ResolveMarketForm
               marketId={market.id}
+              effectiveCloseAt={market.effectiveCloseAt}
               resolutionSource={market.resolutionSource}
               outcomes={market.outcomes.map((outcome) => ({
                 id: outcome.id,

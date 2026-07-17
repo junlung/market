@@ -20,6 +20,20 @@ PROPOSED ──approve──▶ DRAFT ──open──▶ OPEN ──close──
 - `RESOLVED` implies `winningOutcomeId != null`. A canceled market is identified by
   status alone — no winning outcome, no resolution outcome value.
 
+**Effective close cutoff** (`Market.effectiveCloseAt`, nullable): event markets get a
+generous `closeTime` and are closed manually after the event, leaving a sniping window
+where the outcome is already known. The close form can backdate the cutoff to the
+moment betting *should* have stopped, and the resolve form can set or correct it while
+the market is CLOSED (validated `openedAt ≤ effectiveCloseAt ≤ closedAt`). A bet is
+void iff `bet.createdAt > effectiveCloseAt`. Voiding executes at settlement, inside the
+settlement transaction: void portions are carved out of the parimutuel math
+(`docs/economy.md`), refunded as `BET_VOID_REFUND` entries, and removed from the
+`PoolStake` rows — so a bettor whose entire position was void has no participation for
+standings or achievements, and late bets can't set the longshot probability. The
+bettor's position card flags void points before settlement; settlement previews compute
+from valid stakes only. Null means no backdating and settlement is identical to a
+market without the field.
+
 Transitions live in `src/lib/server/market-service.ts` and are audit-logged to `AppLog`
 (`PROPOSAL_ACTION` / `ADMIN_ACTION`).
 

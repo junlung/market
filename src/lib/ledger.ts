@@ -38,6 +38,7 @@ export function categorizeLedgerAmount(type: LedgerEntryType, amount: number): B
     case LedgerEntryType.MARKET_PAYOUT:
       return { ...empty, payouts: amount };
     case LedgerEntryType.MARKET_REFUND:
+    case LedgerEntryType.BET_VOID_REFUND:
       return { ...empty, refunds: amount };
   }
 }

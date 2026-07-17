@@ -19,6 +19,7 @@ append-only ledger — computed on read, never denormalized. Entry types
 | `BET_PLACED` | − | Stake leaving the balance |
 | `MARKET_PAYOUT` | + | Winnings (stake + share of the losing pool) |
 | `MARKET_REFUND` | + | Stake returned by a canceled or all-refund settlement |
+| `BET_VOID_REFUND` | + | Bet voided by the effective close cutoff, returned at settlement |
 
 Every entry carries `leagueId` (and `seasonId` where the league's balance policy needs
 it). Balance reads are always league-scoped through `getLeagueBalance` / `balanceWhere`
@@ -67,11 +68,20 @@ All settlement math is pure and lives in `src/lib/parimutuel.ts`:
 - **Refund-all:** if the winning outcome has no backers but other outcomes hold stakes,
   every staker is refunded in full and no rake is taken. A market with no stakes at all
   settles empty.
-- **Conservation:** `totalIn === totalOut + rake + dust`, checked by
-  `checkConservation` in the pure math **and re-checked at runtime inside the
-  settlement transaction** before any row is written
-  (`writeSettlement`, `src/lib/server/market-service.ts`). Unit tests fuzz this
-  property across thousands of randomized markets. Never bypass either check.
+- **Effective close cutoff** (`computeSettlementWithVoids`): when a market carries an
+  `effectiveCloseAt` (see `docs/markets.md`), the portion of each stake placed after it
+  is void — carved out before odds, rake, and gem conversion are computed, and returned
+  as a `BET_VOID_REFUND` ledger entry. A user can receive a payout *and* a void refund
+  from the same settlement. Voiding every backer of the winning outcome degrades to
+  refund-all for the valid stakes too.
+- **Conservation:** `totalIn === totalOut + rake + dust` (void refunds counted on both
+  sides), checked by `checkConservation` in the pure math **and re-checked at runtime
+  inside the settlement transaction** before any row is written
+  (`writeSettlement`, `src/lib/server/market-service.ts`). The stored audit form is
+  `winningPool + losingPool + voidRefunded === totalPaidOut + rakeAmount + dustAmount`
+  (`MarketResolution`; W/L cover valid stakes only, and `Σ Outcome.poolFinal = W + L`).
+  Unit tests fuzz this property across thousands of randomized markets. Never bypass
+  either check.
 
 ## Concurrency
 
