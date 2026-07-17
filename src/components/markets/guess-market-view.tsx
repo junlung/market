@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { CountdownBadge } from "@/components/ui/countdown-badge";
 import { LocalTime } from "@/components/ui/local-time";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { categoryDisplay } from "@/lib/categories";
+import { categoryLabel } from "@/lib/categories";
 import { formatPoints } from "@/lib/format";
 import { dateToDateKey, formatDateKey, todayUtcKey } from "@/lib/guess-dates";
 import { getMarketStatusLabel } from "@/lib/markets";
@@ -86,7 +86,7 @@ export async function GuessMarketView({
               </Link>
             ) : null}
             <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">
-              {categoryDisplay(market.category)}
+              {categoryLabel(market.category)}
             </span>
             <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
               Closest guess

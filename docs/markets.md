@@ -65,9 +65,10 @@ data update, never a migration.
 - Edits may keep a market's existing category even if it's no longer in the list
   (values that predate a list change or the one-time slug remap), but any *change*
   must land on a current option.
-- Display goes through `categoryDisplay`/`categoryLabel`: canonical slugs render
-  emoji + label, anything else renders as stored. Dashboard tabs still derive from
-  whatever open markets exist (`getOpenCategories`).
+- Display goes through `categoryLabel`: canonical slugs render their plain label
+  (no emoji — the category emoji only appears as the generated achievement glyph),
+  anything else renders as stored. Dashboard tabs still derive from whatever open
+  markets exist (`getOpenCategories`).
 
 ## Closest-guess markets
 

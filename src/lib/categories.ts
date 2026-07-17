@@ -12,7 +12,7 @@
 export type CategoryDef = {
   slug: string;
   label: string;
-  /** decoration for tabs/cards and the generated achievement glyphs */
+  /** glyph for the generated category achievements — names render emoji-free */
   emoji: string;
   /** Misc is the escape hatch for jokes and one-offs — no achievements */
   achievementEligible: boolean;
@@ -52,19 +52,13 @@ export function categoryLabel(value: string) {
   return CATEGORY_BY_SLUG.get(value)?.label ?? value;
 }
 
-/** Label with the category's emoji prefix, for tabs and cards. */
-export function categoryDisplay(value: string) {
-  const def = CATEGORY_BY_SLUG.get(value);
-  return def ? `${def.emoji} ${def.label}` : value;
-}
-
 export type CategoryOption = { value: string; label: string };
 
 /** The market form's options: canonical slugs for Global markets. */
 export function globalCategoryOptions(): CategoryOption[] {
   return GLOBAL_CATEGORIES.map((def) => ({
     value: def.slug,
-    label: `${def.emoji} ${def.label}`,
+    label: def.label,
   }));
 }
 

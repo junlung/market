@@ -31,7 +31,7 @@ import {
   formatPoints,
   formatSignedPoints,
 } from "@/lib/format";
-import { categoryDisplay, globalCategoryOptions, leagueCategoryOptions } from "@/lib/categories";
+import { categoryLabel, globalCategoryOptions, leagueCategoryOptions } from "@/lib/categories";
 import { getMarketStatusLabel, isMarketEditable } from "@/lib/markets";
 import {
   isYesNoMarket,
@@ -261,7 +261,7 @@ export async function MarketDetailView({ marketId, side, outcomeParam, expectedL
               </Link>
             ) : null}
             <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">
-              {categoryDisplay(market.category)}
+              {categoryLabel(market.category)}
             </span>
             <StatusBadge label={getMarketStatusLabel(market.status)} />
             {isOpen ? <CountdownBadge closeTime={market.closeTime} /> : null}

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import clsx from "clsx";
-import { categoryDisplay } from "@/lib/categories";
+import { categoryLabel } from "@/lib/categories";
 
 export function CategoryTabs({
   categories,
@@ -14,7 +14,7 @@ export function CategoryTabs({
 }) {
   const tabs = [
     { id: "", label: "All" },
-    ...categories.map((category) => ({ id: category, label: categoryDisplay(category) })),
+    ...categories.map((category) => ({ id: category, label: categoryLabel(category) })),
   ];
 
   function href(categoryId: string) {

@@ -13,7 +13,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { buttonClasses } from "@/components/ui/button";
-import { categoryDisplay, globalCategoryOptions, leagueCategoryOptions } from "@/lib/categories";
+import { categoryLabel, globalCategoryOptions, leagueCategoryOptions } from "@/lib/categories";
 import { formatChance, formatPoints, formatSignedPoints } from "@/lib/format";
 import { outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { isMarketEditable } from "@/lib/markets";
@@ -78,7 +78,7 @@ export default async function AdminMarketDetailPage({ params }: Props) {
         ) : market.winningOutcome ? (
           <StatusBadge label={`won: ${outcomeDisplayLabel(market.winningOutcome)}`} />
         ) : null}
-        <span className="text-xs text-faint">{categoryDisplay(market.category)}</span>
+        <span className="text-xs text-faint">{categoryLabel(market.category)}</span>
         {market.reviewNote ? (
           <span className="text-xs text-muted">Review note: {market.reviewNote}</span>
         ) : null}
