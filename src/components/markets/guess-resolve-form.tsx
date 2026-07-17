@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { cancelMarketAction, resolveGuessMarketAction } from "@/app/actions/markets";
 import type { ActionResult } from "@/lib/server/market-service";
+import { dateKeyToUtcIso } from "@/lib/guess-dates";
 import { Button } from "@/components/ui/button";
 import { FieldError, Input, Label, Textarea } from "@/components/ui/input";
 
@@ -25,7 +26,7 @@ export function GuessResolveForm({
   const [showDanger, setShowDanger] = useState(false);
 
   // pinned to UTC midnight like the guesses themselves
-  const iso = actual ? `${actual}T00:00:00.000Z` : "";
+  const iso = actual ? dateKeyToUtcIso(actual) : "";
 
   return (
     <div className="space-y-4">

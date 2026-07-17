@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import clsx from "clsx";
-import { Plus, X } from "lucide-react";
+import { CalendarDays, ChartColumn, Plus, X } from "lucide-react";
 import { appConfig } from "@/lib/config";
 import {
   BINARY_PRESET,
@@ -50,6 +50,24 @@ type Props = {
 const initialState: MarketFormState = {};
 
 const MAX_OUTCOMES = 6;
+
+// nearly every market is the default parimutuel game, so the type selector
+// stays out of the way until someone goes looking for it
+const KIND_OPTIONS = [
+  {
+    value: "PARIMUTUEL",
+    icon: ChartColumn,
+    title: "Default",
+    blurb: "Bet points on 2–6 outcomes — odds move with the pool.",
+  },
+  {
+    value: "CLOSEST_GUESS",
+    icon: CalendarDays,
+    title: "Closest guess (date)",
+    blurb:
+      "Everyone antes the same amount and claims a date — nearest three split the pot 60/25/15. No odds, no rake.",
+  },
+] as const;
 
 function toInputDateTime(value: Date) {
   return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
@@ -123,6 +141,7 @@ export function MarketForm({
   // the game kind is fixed at creation; closest-guess swaps the outcome
   // editor and economy fields for a single ante
   const [kind, setKind] = useState<"PARIMUTUEL" | "CLOSEST_GUESS">(market?.kind ?? "PARIMUTUEL");
+  const [kindExpanded, setKindExpanded] = useState(false);
   const isGuess = kind === "CLOSEST_GUESS";
 
   function applyPreset(closeHoursFromNow: number, resolveHoursAfterClose: number) {
@@ -221,33 +240,56 @@ export function MarketForm({
 
       <input type="hidden" name="kind" value={kind} />
       {!market ? (
-        <div>
-          <Label>Game type</Label>
-          <div className="mt-1 flex gap-2">
-            <Button
+        !kindExpanded ? (
+          <p className="text-xs text-muted">
+            Game type:{" "}
+            <span className="font-semibold text-foreground">
+              {isGuess ? "Closest guess" : "Default"}
+            </span>{" "}
+            ·{" "}
+            <button
               type="button"
-              size="sm"
-              variant={isGuess ? "secondary" : "primary"}
-              onClick={() => setKind("PARIMUTUEL")}
+              onClick={() => setKindExpanded(true)}
+              className="font-medium text-primary hover:underline"
             >
-              Outcomes &amp; odds
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={isGuess ? "primary" : "secondary"}
-              onClick={() => setKind("CLOSEST_GUESS")}
-            >
-              Closest guess (date)
-            </Button>
+              change
+            </button>
+          </p>
+        ) : (
+          <div>
+            <Label>Game type</Label>
+            <div role="radiogroup" aria-label="Game type" className="mt-1 grid gap-2 sm:grid-cols-2">
+              {KIND_OPTIONS.map(({ value, icon: Icon, title, blurb }) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={kind === value}
+                  onClick={() => setKind(value)}
+                  className={clsx(
+                    "flex items-start gap-3 rounded-xl border p-3 text-left transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                    kind === value
+                      ? "border-primary bg-primary/5 ring-1 ring-primary"
+                      : "border-border bg-surface hover:border-border-strong",
+                  )}
+                >
+                  <Icon
+                    className={clsx(
+                      "mt-0.5 size-5 shrink-0",
+                      kind === value ? "text-primary" : "text-muted",
+                    )}
+                    aria-hidden
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold">{title}</span>
+                    <span className="mt-0.5 block text-xs text-muted">{blurb}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
-          {isGuess ? (
-            <p className="mt-1 text-xs text-faint">
-              Everyone antes the same amount and claims a date — nearest three split the pot
-              60/25/15 at resolution. No odds, no rake.
-            </p>
-          ) : null}
-        </div>
+        )
       ) : null}
 
       {isGuess ? (

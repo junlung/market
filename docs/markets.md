@@ -97,8 +97,20 @@ bounce off parimutuel markets, and each kind has its own settlement path.
   entries drive standings); for achievements, **rank 1 is the win** — podium money
   without first place advances volume and category counts but not win streaks.
   Longshot never applies (no odds). Cancel refunds every ante in full.
-- **UI**: the market page swaps odds machinery for a claimed-dates board and a date
-  picker (`GuessMarketView`); the dashboard card shows pot/ante/entrants. Management
+- **UI**: the market page swaps odds machinery for the claimed-dates board
+  (`GuessMarketView` hosting `GuessTimelineWidget`): a horizontally scrollable
+  day timeline where each claim is a flag with the member's avatar, with a list
+  view as the second mode. Long empty stretches collapse into tappable gap chips
+  (guess dates are unbounded), and a jump-to-date input covers far-away targets —
+  it doubles as the accessible fallback alongside the list. While open, tapping a
+  free day arms a claim/move confirm bar (claimed days show the owner instead —
+  the client pre-blocks taken dates, the `[marketId, value]` unique stays the
+  authority); after resolution the same track marks the answer with a vertical
+  line, medals the podium flags, and dims the rest. Timeline math lives on
+  yyyy-mm-dd date keys via `src/lib/guess-dates.ts` — all rendering pins to UTC.
+  The dashboard card shows pot/ante/entrants. On the create form, the game type
+  sits collapsed behind a "Game type: Default · change" line (parimutuel is the
+  overwhelming default) that expands to illustrated selection cards. Management
   lives on the market page — `/admin/markets/[id]` redirects guess markets there.
   The effective close cutoff (above) is a parimutuel feature; closest-guess markets
   close on `closeTime` or the manual close, with no backdating in v1.

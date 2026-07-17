@@ -6,24 +6,20 @@ import { Shield, Trophy, Users } from "lucide-react";
 import { marketStatusAction } from "@/app/actions/markets";
 import { CloseMarketForm } from "@/components/markets/close-market-form";
 import { CommentThread } from "@/components/markets/comment-thread";
-import { GuessForm } from "@/components/markets/guess-form";
 import { GuessResolveForm } from "@/components/markets/guess-resolve-form";
-import { BadgeGlyph } from "@/components/members/cosmetic-renderers";
-import { MemberAvatar } from "@/components/members/member-avatar";
-import { ProfileLink } from "@/components/members/profile-link";
+import { GuessTimelineWidget } from "@/components/markets/guess-timeline/guess-timeline-widget";
 import { Button } from "@/components/ui/button";
 import { CountdownBadge } from "@/components/ui/countdown-badge";
 import { LocalTime } from "@/components/ui/local-time";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { categoryDisplay } from "@/lib/categories";
-import { formatPoints, formatSignedPoints } from "@/lib/format";
+import { formatPoints } from "@/lib/format";
+import { dateToDateKey, formatDateKey, todayUtcKey } from "@/lib/guess-dates";
 import { getMarketStatusLabel } from "@/lib/markets";
 import { getUserCosmetics } from "@/lib/server/item-service";
 import { canOperateLeague, getLeagueMembership } from "@/lib/server/league-service";
 import { getGuessMarketDetail } from "@/lib/server/market-service";
 import { requireSession } from "@/lib/session";
-
-const RANK_MEDALS = ["🥇", "🥈", "🥉"] as const;
 
 /**
  * The closest-guess market page: a timeline of claimed dates instead of odds,
@@ -64,24 +60,20 @@ export async function GuessMarketView({
   const viewerCosmetics = await getUserCosmetics(session.user.id);
 
   // guess values live at UTC midnight — the calendar date is the identity
-  const takenDates = market.guesses.map((guess) => guess.value.toISOString().slice(0, 10));
-  const guessDateLabel = (value: Date) =>
-    value.toLocaleDateString("en-US", {
-      timeZone: "UTC",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-
+  const timelineGuesses = market.guesses.map((guess) => ({
+    userId: guess.userId,
+    name: guess.name,
+    username: guess.username,
+    cosmetics: guess.cosmetics,
+    dateKey: dateToDateKey(guess.value),
+    finalRank: guess.finalRank,
+    payout: guess.payout,
+  }));
   const actual = market.resolution?.actualValue ?? null;
-  const rankedGuesses = isResolved
-    ? [...market.guesses].sort(
-        (a, b) => (a.finalRank ?? Number.MAX_SAFE_INTEGER) - (b.finalRank ?? Number.MAX_SAFE_INTEGER),
-      )
-    : market.guesses;
+  const widgetStatus = isCanceled ? "canceled" : isResolved ? "resolved" : isOpen ? "open" : "closed";
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+    <div className={canOperate ? "grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]" : "grid gap-6"}>
       <div className="min-w-0 space-y-5">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -125,53 +117,22 @@ export async function GuessMarketView({
         ) : null}
         {isResolved && actual ? (
           <p className="rounded-xl border border-yes/40 bg-yes-bg p-4 text-sm">
-            <span className="font-semibold">The answer: {guessDateLabel(actual)}.</span>{" "}
+            <span className="font-semibold">The answer: {formatDateKey(dateToDateKey(actual))}.</span>{" "}
             Closest three split the pot 60/25/15.
           </p>
         ) : null}
 
-        <div className="rounded-xl border border-border bg-surface p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-faint">
-            {isResolved ? "Final board" : "Claimed dates"}
-          </p>
-          {market.guesses.length === 0 ? (
-            <p className="mt-3 text-sm text-muted">
-              Nobody&apos;s in yet — the timeline is wide open.
-            </p>
-          ) : (
-            <ul className="mt-2 divide-y divide-border">
-              {rankedGuesses.map((guess) => (
-                <li key={guess.userId} className="flex items-center justify-between gap-3 py-2 text-sm">
-                  <ProfileLink
-                    username={guess.username}
-                    className="flex min-w-0 items-center gap-2 font-medium hover:underline"
-                  >
-                    {isResolved && guess.finalRank && guess.finalRank <= 3 ? (
-                      <span aria-hidden>{RANK_MEDALS[guess.finalRank - 1]}</span>
-                    ) : null}
-                    <MemberAvatar name={guess.name} size="xs" frame={guess.cosmetics?.frame} />
-                    <span className="truncate">{guess.name}</span>
-                    <BadgeGlyph badge={guess.cosmetics?.badge} label={`${guess.name}'s badge`} />
-                  </ProfileLink>
-                  <span className="flex shrink-0 items-center gap-3 tabular-nums">
-                    <span>{guessDateLabel(guess.value)}</span>
-                    {isResolved ? (
-                      <span
-                        className={
-                          (guess.payout ?? 0) - market.anteAmount >= 0
-                            ? "text-xs font-semibold text-yes"
-                            : "text-xs font-semibold text-no"
-                        }
-                      >
-                        {formatSignedPoints((guess.payout ?? 0) - market.anteAmount)}
-                      </span>
-                    ) : null}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <GuessTimelineWidget
+          marketId={market.id}
+          ante={market.anteAmount}
+          status={widgetStatus}
+          guesses={timelineGuesses}
+          viewerId={session.user.id}
+          viewerName={session.user.name ?? "You"}
+          viewerCosmetics={viewerCosmetics}
+          todayKey={todayUtcKey()}
+          actualKey={actual ? dateToDateKey(actual) : null}
+        />
 
         <CommentThread
           marketId={market.id}
@@ -182,17 +143,8 @@ export async function GuessMarketView({
         />
       </div>
 
-      <div className="space-y-4">
-        {isOpen ? (
-          <GuessForm
-            marketId={market.id}
-            ante={market.anteAmount}
-            viewerGuess={market.viewerGuess}
-            takenDates={takenDates}
-          />
-        ) : null}
-
-        {canOperate ? (
+      {canOperate ? (
+        <div className="space-y-4">
           <div className="space-y-4 rounded-xl border border-warn/40 bg-surface p-4">
             <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-warn">
               <Shield className="size-3.5" aria-hidden /> Market management
@@ -213,8 +165,8 @@ export async function GuessMarketView({
               <GuessResolveForm marketId={market.id} resolutionSource={market.resolutionSource} />
             ) : null}
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }

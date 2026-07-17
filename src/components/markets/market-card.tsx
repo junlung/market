@@ -3,6 +3,7 @@ import type { Route } from "next";
 import { Trophy, Users } from "lucide-react";
 import { categoryDisplay } from "@/lib/categories";
 import { formatChance, formatCompactPoints, formatPoints } from "@/lib/format";
+import { dateToDateKey, formatDateKey } from "@/lib/guess-dates";
 import { isYesNoMarket, outcomeColorBg, outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { CountdownBadge } from "@/components/ui/countdown-badge";
 import { PoolBar } from "@/components/ui/pool-bar";
@@ -78,13 +79,7 @@ function GuessMarketCard({ market, hrefBase }: { market: MarketCardData; hrefBas
 
       {market.viewerGuess ? (
         <div className="mt-3 border-t border-border pt-2 text-xs font-medium text-muted">
-          You:{" "}
-          {market.viewerGuess.toLocaleDateString("en-US", {
-            timeZone: "UTC",
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          })}
+          You: {formatDateKey(dateToDateKey(market.viewerGuess))}
         </div>
       ) : null}
     </div>
