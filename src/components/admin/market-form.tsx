@@ -33,6 +33,8 @@ type Props = {
     outcomes: Array<{ label: string; color: string; emoji?: string | null }>;
     maxStakePerUser?: number;
     rakeBps?: number;
+    kind?: "PARIMUTUEL" | "CLOSEST_GUESS";
+    anteAmount?: number | null;
   };
   /** Member proposals hide the economy fields — admins set those on review. */
   mode?: "admin" | "propose";
@@ -118,6 +120,10 @@ export function MarketForm({
   );
   // the outcome count is fixed once the market exists
   const countLocked = Boolean(market);
+  // the game kind is fixed at creation; closest-guess swaps the outcome
+  // editor and economy fields for a single ante
+  const [kind, setKind] = useState<"PARIMUTUEL" | "CLOSEST_GUESS">(market?.kind ?? "PARIMUTUEL");
+  const isGuess = kind === "CLOSEST_GUESS";
 
   function applyPreset(closeHoursFromNow: number, resolveHoursAfterClose: number) {
     const close = addHours(new Date(), closeHoursFromNow);
@@ -213,6 +219,55 @@ export function MarketForm({
         <FieldError message={state.fieldErrors?.description} />
       </div>
 
+      <input type="hidden" name="kind" value={kind} />
+      {!market ? (
+        <div>
+          <Label>Game type</Label>
+          <div className="mt-1 flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={isGuess ? "secondary" : "primary"}
+              onClick={() => setKind("PARIMUTUEL")}
+            >
+              Outcomes &amp; odds
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={isGuess ? "primary" : "secondary"}
+              onClick={() => setKind("CLOSEST_GUESS")}
+            >
+              Closest guess (date)
+            </Button>
+          </div>
+          {isGuess ? (
+            <p className="mt-1 text-xs text-faint">
+              Everyone antes the same amount and claims a date — nearest three split the pot
+              60/25/15 at resolution. No odds, no rake.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {isGuess ? (
+        <div>
+          <Label htmlFor="mf-ante">Ante (points per player)</Label>
+          <Input
+            id="mf-ante"
+            type="number"
+            min="1"
+            step="1"
+            name="anteAmount"
+            defaultValue={market?.anteAmount ?? 50}
+            className="max-w-40"
+            required
+          />
+          <FieldError message={state.fieldErrors?.anteAmount} />
+        </div>
+      ) : null}
+
+      {isGuess ? null : (
       <div>
         <Label>Outcomes</Label>
         <p className="mb-2 text-xs text-faint">
@@ -315,6 +370,7 @@ export function MarketForm({
         ) : null}
         <FieldError message={state.fieldErrors?.outcomes} />
       </div>
+      )}
 
       <div className="rounded-lg bg-surface-2 p-3">
         <p className="text-xs font-medium text-muted">Quick schedule</p>
@@ -387,7 +443,7 @@ export function MarketForm({
           />
           <FieldError message={state.fieldErrors?.resolutionSource} />
         </div>
-        {mode === "admin" ? (
+        {mode === "admin" && !isGuess ? (
           <>
             <div>
               <Label htmlFor="mf-cap">Max stake per player</Label>

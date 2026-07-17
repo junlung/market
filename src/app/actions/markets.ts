@@ -11,16 +11,20 @@ import {
   createMarket,
   openMarket,
   requireMarketOperator,
+  resolveClosestGuessMarket,
   resolveMarket,
   updateMarket,
   type ActionResult,
 } from "@/lib/server/market-service";
+import { placeGuess } from "@/lib/server/guess-service";
 import { ensureWeeklyAllowance } from "@/lib/server/allowance-service";
 import {
   betSchema,
   cancelMarketSchema,
   collectFieldErrors,
   marketFormSchema,
+  placeGuessSchema,
+  resolveGuessMarketSchema,
   resolveMarketSchema,
 } from "@/lib/validation";
 
@@ -53,6 +57,8 @@ function readOutcomeFields(formData: FormData) {
 
 function parseMarketForm(formData: FormData) {
   return marketFormSchema.safeParse({
+    kind: formData.get("kind") || "PARIMUTUEL",
+    anteAmount: formData.get("anteAmount") || undefined,
     title: formData.get("title"),
     description: formData.get("description"),
     category: formData.get("category"),
@@ -96,9 +102,11 @@ export async function createMarketAction(_: MarketFormState, formData: FormData)
         resolveTime: new Date(parsed.data.resolveTime),
         resolutionSource: parsed.data.resolutionSource,
       },
-      outcomes: parsed.data.outcomes,
-      maxStakePerUser: parsed.data.maxStakePerUser,
-      rakeBps: parsed.data.rakeBps,
+      kind: parsed.data.kind,
+      outcomes: parsed.data.kind === "PARIMUTUEL" ? parsed.data.outcomes : [],
+      anteAmount: parsed.data.kind === "CLOSEST_GUESS" ? parsed.data.anteAmount : undefined,
+      maxStakePerUser: parsed.data.kind === "PARIMUTUEL" ? parsed.data.maxStakePerUser : undefined,
+      rakeBps: parsed.data.kind === "PARIMUTUEL" ? parsed.data.rakeBps : undefined,
       openNow: formData.get("openNow") === "true",
     });
     invalidateAppData();
@@ -126,15 +134,77 @@ export async function updateMarketAction(_: MarketFormState, formData: FormData)
       closeTime: new Date(parsed.data.closeTime),
       resolveTime: new Date(parsed.data.resolveTime),
       resolutionSource: parsed.data.resolutionSource,
-      outcomes: parsed.data.outcomes,
-      maxStakePerUser: parsed.data.maxStakePerUser,
-      rakeBps: parsed.data.rakeBps,
+      ...(parsed.data.kind === "PARIMUTUEL"
+        ? {
+            outcomes: parsed.data.outcomes,
+            maxStakePerUser: parsed.data.maxStakePerUser,
+            rakeBps: parsed.data.rakeBps,
+          }
+        : { anteAmount: parsed.data.anteAmount }),
     });
     invalidateAppData();
     revalidatePath(`/admin/markets/${marketId}`);
     return { success: "Market updated." };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Failed to update market." };
+  }
+}
+
+export async function placeGuessAction(_: ActionResult, formData: FormData): Promise<ActionResult> {
+  const session = await requireSession();
+  const parsed = placeGuessSchema.safeParse({
+    marketId: formData.get("marketId"),
+    value: formData.get("value"),
+  });
+
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Pick a valid date." };
+  }
+
+  try {
+    await placeGuess({
+      userId: session.user.id,
+      marketId: parsed.data.marketId,
+      value: new Date(parsed.data.value),
+    });
+    invalidateAppData();
+    revalidatePath(`/markets/${parsed.data.marketId}`);
+    return { success: "Your date is claimed." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to place your guess." };
+  }
+}
+
+export async function resolveGuessMarketAction(
+  _: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const session = await requireSession();
+  const parsed = resolveGuessMarketSchema.safeParse({
+    marketId: formData.get("marketId"),
+    actualValue: formData.get("actualValue"),
+    resolutionSource: formData.get("resolutionSource"),
+    notes: formData.get("notes") || undefined,
+  });
+
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Resolution details are invalid." };
+  }
+
+  try {
+    await requireMarketOperator(parsed.data.marketId, session.user.id);
+    await resolveClosestGuessMarket(
+      parsed.data.marketId,
+      session.user.id,
+      new Date(parsed.data.actualValue),
+      parsed.data.resolutionSource,
+      parsed.data.notes,
+    );
+    invalidateAppData();
+    revalidatePath(`/admin/markets/${parsed.data.marketId}`);
+    return { success: "Market resolved and paid out." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to resolve market." };
   }
 }
 

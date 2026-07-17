@@ -136,13 +136,44 @@ export async function getUserResolvedHistory(userId: string): Promise<ResolvedMa
 }
 
 /**
+ * Closest-guess entries as evaluator facts: participation advances volume
+ * and category counts like any settled market; the "win" is finalRank 1
+ * (frozen at settlement). Longshot never applies — there are no odds.
+ */
+async function getUserGuessHistory(userId: string, globalLeagueId: string): Promise<ResolvedMarketFact[]> {
+  const guesses = await prisma.guess.findMany({
+    where: {
+      userId,
+      market: { status: MarketStatus.RESOLVED, leagueId: globalLeagueId },
+    },
+    select: {
+      marketId: true,
+      finalRank: true,
+      market: { select: { resolvedAt: true, category: true } },
+    },
+  });
+
+  return guesses.map((guess) => ({
+    marketId: guess.marketId,
+    resolvedAt: guess.market.resolvedAt ?? new Date(0),
+    won: guess.finalRank === 1,
+    category: guess.market.category,
+    minWinningImpliedProb: null,
+  }));
+}
+
+/**
  * Evaluates a user's full history and grants whatever is missing. Idempotent:
  * the gem entry is keyed by [userId, achievementKey] and the badge by
  * grantKey, so re-runs (and the launch backfill) can never double-grant.
  * Returns the newly granted keys.
  */
 export async function evaluateUserAchievements(userId: string): Promise<AchievementKey[]> {
-  const history = await getUserResolvedHistory(userId);
+  const globalLeague = await ensureGlobalLeague();
+  const history = [
+    ...(await getUserResolvedHistory(userId)),
+    ...(await getUserGuessHistory(userId, globalLeague.id)),
+  ];
   if (history.length === 0) {
     return [];
   }
@@ -297,8 +328,12 @@ export async function evaluateAchievementsForMarket(marketId: string) {
     select: { userId: true },
     distinct: ["userId"],
   });
+  const entrants = await prisma.guess.findMany({
+    where: { marketId },
+    select: { userId: true },
+  });
 
-  for (const { userId } of stakers) {
+  for (const { userId } of [...stakers, ...entrants]) {
     await evaluateUserAchievements(userId);
   }
 }

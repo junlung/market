@@ -43,15 +43,24 @@ const outcomesSchema = z
     "Outcome labels must be unique.",
   );
 
-const marketFieldsSchema = z.object({
+const marketFieldsBase = z.object({
   title: z.string().trim().min(5, "Question needs at least 5 characters."),
   description: z.string().trim().min(10, "Description needs at least 10 characters — spell out what counts for each outcome."),
   category: z.string().trim().min(2, "Category needs at least 2 characters."),
   closeTime: localDateTimeSchema,
   resolveTime: localDateTimeSchema,
   resolutionSource: z.string().trim().min(1, "Resolution source is required."),
-  outcomes: outcomesSchema,
 });
+
+// closest-guess markets have no outcomes and a required ante; parimutuel
+// markets keep the 2–6 outcome editor. Callers pass kind explicitly
+// (defaulting to PARIMUTUEL at the parse site when the form omits it).
+function marketKindUnion<Extra extends z.ZodRawShape>(extra: Extra) {
+  return z.discriminatedUnion("kind", [
+    marketFieldsBase.extend({ kind: z.literal("PARIMUTUEL"), outcomes: outcomesSchema, ...extra }),
+    marketFieldsBase.extend({ kind: z.literal("CLOSEST_GUESS"), anteAmount: points.max(100_000) }),
+  ]);
+}
 
 /** All validation problems keyed by field name, for inline form errors. */
 export function collectFieldErrors(error: z.ZodError) {
@@ -65,12 +74,12 @@ export function collectFieldErrors(error: z.ZodError) {
   return fieldErrors;
 }
 
-export const marketFormSchema = marketFieldsSchema.extend({
+export const marketFormSchema = marketKindUnion({
   maxStakePerUser: points.max(100_000).optional(),
   rakeBps: z.coerce.number().int().min(0).max(2000).optional(),
 });
 
-export const proposeMarketSchema = marketFieldsSchema;
+export const proposeMarketSchema = marketKindUnion({});
 
 export const reviewProposalSchema = z.object({
   marketId: z.string().cuid(),
@@ -94,6 +103,18 @@ export const resolveMarketSchema = z.object({
 export const closeMarketSchema = z.object({
   marketId: z.string().cuid(),
   effectiveCloseAt: localDateTimeSchema.optional(),
+});
+
+export const placeGuessSchema = z.object({
+  marketId: z.string().cuid(),
+  value: localDateTimeSchema,
+});
+
+export const resolveGuessMarketSchema = z.object({
+  marketId: z.string().cuid(),
+  actualValue: localDateTimeSchema,
+  resolutionSource: z.string().trim().min(1, "Resolution source is required.").max(280),
+  notes: z.string().trim().max(500).optional(),
 });
 
 export const cancelMarketSchema = z.object({

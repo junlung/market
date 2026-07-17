@@ -54,6 +54,8 @@ export async function proposeMarketAction(_: MarketFormState, formData: FormData
   const emojis = formData.getAll("outcomeEmoji").map(String);
 
   const parsed = proposeMarketSchema.safeParse({
+    kind: formData.get("kind") || "PARIMUTUEL",
+    anteAmount: formData.get("anteAmount") || undefined,
     title: formData.get("title"),
     description: formData.get("description"),
     category: formData.get("category"),
@@ -83,7 +85,9 @@ export async function proposeMarketAction(_: MarketFormState, formData: FormData
         resolveTime: new Date(parsed.data.resolveTime),
         resolutionSource: parsed.data.resolutionSource,
       },
-      outcomes: parsed.data.outcomes,
+      kind: parsed.data.kind,
+      outcomes: parsed.data.kind === "PARIMUTUEL" ? parsed.data.outcomes : [],
+      anteAmount: parsed.data.kind === "CLOSEST_GUESS" ? parsed.data.anteAmount : undefined,
     });
     revalidateProposalViews();
     return {

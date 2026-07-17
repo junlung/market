@@ -25,6 +25,14 @@ enum MarketStatus {
   CANCELED
 }
 
+// How a market's game works: parimutuel pools over named outcomes, or a
+// closest-guess pot where every entrant antes the same and the nearest
+// date guesses take the pot (no rake, no gems — see docs/markets.md).
+enum MarketKind {
+  PARIMUTUEL
+  CLOSEST_GUESS
+}
+
 enum LedgerEntryType {
   INITIAL_GRANT
   WEEKLY_ALLOWANCE
@@ -171,6 +179,7 @@ model User {
   updatedAt         DateTime           @updatedAt
   bets              Bet[]
   poolStakes        PoolStake[]
+  guesses           Guess[]
   ledgerEntries     LedgerEntry[]
   comments          Comment[]
   appLogs           AppLog[]
@@ -348,6 +357,9 @@ model Market {
   resolveTime      DateTime
   resolutionSource String
   status           MarketStatus @default(DRAFT)
+  kind             MarketKind   @default(PARIMUTUEL)
+  // CLOSEST_GUESS only: the fixed entry cost — pot = entrants × ante
+  anteAmount       Int?
 
   // every market lives in exactly one league (backfilled to the Global
   // League); a market never moves leagues (decisions log, Phase 2)
@@ -395,6 +407,7 @@ model Market {
 
   bets             Bet[]
   poolStakes       PoolStake[]
+  guesses          Guess[]
   ledgerEntries    LedgerEntry[]
   gemLedgerEntries GemLedgerEntry[]
   comments         Comment[]
@@ -456,6 +469,29 @@ model Bet {
   @@index([createdAt])
 }
 
+// One member's entry in a CLOSEST_GUESS market: a claimed date. One guess per
+// member ([marketId, userId]); each date claimable once ([marketId, value] —
+// first-come-first-claimed, so the timeline is a land grab). The value stays
+// editable until close; the ante is paid once at first placement. finalRank
+// and payout freeze at settlement (rank 1 = the win for achievements).
+model Guess {
+  id        String    @id @default(cuid())
+  marketId  String
+  userId    String
+  value     DateTime
+  finalRank Int?
+  payout    Int?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  market Market @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([marketId, userId])
+  @@unique([marketId, value])
+  @@index([userId, createdAt])
+}
+
 // A user's aggregate stake on one outcome. Rows exist only where amount > 0.
 model PoolStake {
   id        String @id @default(cuid())
@@ -506,8 +542,11 @@ model LedgerEntry {
 model MarketResolution {
   id               String  @id @default(cuid())
   marketId         String  @unique
-  // null = canceled (refund all); the winning Outcome id otherwise
+  // null = canceled (refund all); the winning Outcome id otherwise.
+  // CLOSEST_GUESS markets have no outcomes — always null there.
   winningOutcomeId String?
+  // CLOSEST_GUESS only: the true answer guesses were ranked against
+  actualValue      DateTime?
   resolutionSource String
   notes            String?
   // settlement audit — burned points are recorded here, not in the user ledger.

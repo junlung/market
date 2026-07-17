@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { notFound, redirect } from "next/navigation";
-import { MarketStatus } from "@prisma/client";
+import { MarketKind, MarketStatus } from "@prisma/client";
 import { Flame, ScrollText, Shield, Trophy, Users } from "lucide-react";
 import { marketStatusAction, updateMarketAction } from "@/app/actions/markets";
 import { MarketForm } from "@/components/admin/market-form";
@@ -47,9 +47,11 @@ import {
 } from "@/lib/server/league-service";
 import {
   getMarketDetail,
+  getMarketKind,
   getUserBalance,
   previewSettlement,
 } from "@/lib/server/market-service";
+import { GuessMarketView } from "@/components/markets/guess-market-view";
 import { requireSession } from "@/lib/session";
 
 type Props = {
@@ -70,6 +72,11 @@ type Props = {
  * canonical URL — the view redirects/404s mismatches instead of serving both.
  */
 export async function MarketDetailView({ marketId, side, outcomeParam, expectedLeagueSlug }: Props) {
+  // closest-guess markets get their own page shape — no outcomes, no odds
+  if ((await getMarketKind(marketId)) === MarketKind.CLOSEST_GUESS) {
+    return <GuessMarketView marketId={marketId} expectedLeagueSlug={expectedLeagueSlug} />;
+  }
+
   const session = await requireSession();
   const market = await getMarketDetail(marketId, session.user.id);
 

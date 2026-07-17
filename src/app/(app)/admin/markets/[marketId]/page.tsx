@@ -1,7 +1,7 @@
 import { LocalTime } from "@/components/ui/local-time";
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { MarketStatus } from "@prisma/client";
+import { notFound, redirect } from "next/navigation";
+import { MarketKind, MarketStatus } from "@prisma/client";
 import clsx from "clsx";
 import { marketStatusAction, updateMarketAction } from "@/app/actions/markets";
 import { MarketForm } from "@/components/admin/market-form";
@@ -17,7 +17,7 @@ import { categoryDisplay, globalCategoryOptions, leagueCategoryOptions } from "@
 import { formatChance, formatPoints, formatSignedPoints } from "@/lib/format";
 import { outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { isMarketEditable } from "@/lib/markets";
-import { getAdminMarketDetail, previewSettlement } from "@/lib/server/market-service";
+import { getAdminMarketDetail, getMarketKind, previewSettlement } from "@/lib/server/market-service";
 import { requireAdminSession } from "@/lib/session";
 
 type Props = {
@@ -27,6 +27,13 @@ type Props = {
 export default async function AdminMarketDetailPage({ params }: Props) {
   await requireAdminSession();
   const { marketId } = await params;
+
+  // closest-guess markets have no outcome machinery — their management panel
+  // lives on the market page itself
+  if ((await getMarketKind(marketId)) === MarketKind.CLOSEST_GUESS) {
+    redirect(`/markets/${marketId}`);
+  }
+
   const market = await getAdminMarketDetail(marketId);
 
   if (!market) {

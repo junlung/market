@@ -74,6 +74,9 @@ All settlement math is pure and lives in `src/lib/parimutuel.ts`:
   as a `BET_VOID_REFUND` ledger entry. A user can receive a payout *and* a void refund
   from the same settlement. Voiding every backer of the winning outcome degrades to
   refund-all for the valid stakes too.
+- **Closest-guess pots** settle through their own pure math
+  (`src/lib/closest-guess.ts`, see `docs/markets.md`): fixed antes in, 60/25/15 across
+  the podium out, no rake and no gems, `totalIn === totalOut + dust`.
 - **Conservation:** `totalIn === totalOut + rake + dust` (void refunds counted on both
   sides), checked by `checkConservation` in the pure math **and re-checked at runtime
   inside the settlement transaction** before any row is written

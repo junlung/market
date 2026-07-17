@@ -25,15 +25,71 @@ export type MarketCardData = {
   category: string;
   closeTime: Date;
   outcomes: MarketCardOutcome[];
-  leader: MarketCardOutcome;
+  leader: MarketCardOutcome | null;
   leaderTied: boolean;
   pot: number;
   participants: number;
   sparkPoints: number[];
   viewerStakes: Array<{ outcomeId: string; label: string; amount: number }>;
+  kind?: "PARIMUTUEL" | "CLOSEST_GUESS";
+  anteAmount?: number | null;
+  viewerGuess?: Date | null;
 };
 
 const TOP_OUTCOMES_SHOWN = 3;
+
+/** Compact card for closest-guess markets: pot, ante, entrants, your date. */
+function GuessMarketCard({ market, hrefBase }: { market: MarketCardData; hrefBase: string }) {
+  return (
+    <div className="group relative flex flex-col rounded-xl border border-border bg-surface p-4 shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition-all hover:border-border-strong hover:shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">
+          {categoryDisplay(market.category)}
+        </span>
+        <CountdownBadge closeTime={market.closeTime} />
+      </div>
+
+      <div className="mt-3 flex items-start justify-between gap-3">
+        <Link href={`${hrefBase}/${market.id}` as Route} className="min-w-0 flex-1">
+          <span className="absolute inset-0" aria-hidden />
+          <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug group-hover:text-primary">
+            {market.title}
+          </h3>
+        </Link>
+        <span className="shrink-0 rounded-md bg-primary/10 px-2 py-1 text-[11px] font-bold text-primary">
+          Closest guess
+        </span>
+      </div>
+
+      <p className="mt-2 text-xs text-muted">
+        Pick a date — nearest takes the pot. Ante {formatPoints(market.anteAmount ?? 0)} pts.
+      </p>
+
+      <div className="mt-3 flex items-center justify-between gap-2 text-xs text-muted">
+        <span className="inline-flex items-center gap-1 tabular-nums">
+          <Trophy className="size-3.5 text-warn" aria-hidden />
+          {formatCompactPoints(market.pot)} pot
+        </span>
+        <span className="inline-flex items-center gap-1 tabular-nums">
+          <Users className="size-3.5" aria-hidden />
+          {market.participants}
+        </span>
+      </div>
+
+      {market.viewerGuess ? (
+        <div className="mt-3 border-t border-border pt-2 text-xs font-medium text-muted">
+          You:{" "}
+          {market.viewerGuess.toLocaleDateString("en-US", {
+            timeZone: "UTC",
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function MarketCard({
   market,
@@ -43,6 +99,9 @@ export function MarketCard({
   /** League pages pass "/l/[slug]/markets" so cards link inside the league. */
   hrefBase?: string;
 }) {
+  if (market.kind === "CLOSEST_GUESS" || !market.leader) {
+    return <GuessMarketCard market={market} hrefBase={hrefBase} />;
+  }
   const classic = isYesNoMarket(market.outcomes);
 
   const stakeLabel = market.viewerStakes

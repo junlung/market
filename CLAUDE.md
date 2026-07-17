@@ -23,9 +23,10 @@ This file is the map; each area's full truth lives in docs/ (table below).
    `SUM(GemLedgerEntry.amount)`; both ledgers are append-only. Balances are
    league-scoped (`getLeagueBalance`); fresh-stack leagues scope by season, and a
    league with no active season reads 0.
-2. **Four write paths run in `withSerializableRetry`** (`src/lib/server/tx.ts`): bet,
-   settlement/cancel, store purchase, cosmetic equip. The wrapper also retries unique
-   violations (P2002), so wrapped code must tolerate full re-runs.
+2. **Five write paths run in `withSerializableRetry`** (`src/lib/server/tx.ts`): bet,
+   guess placement (closest-guess ante), settlement/cancel, store purchase, cosmetic
+   equip. The wrapper also retries unique violations (P2002), so wrapped code must
+   tolerate full re-runs.
 3. **Conservation is re-checked at runtime** inside the settlement transaction
    (`totalIn = totalOut + rake + dust`, and `gemsMinted + gemDust = rake`) before
    anything is written. Never bypass these checks.

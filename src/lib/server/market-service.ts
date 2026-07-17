@@ -3,10 +3,12 @@ import {
   AppLogLevel,
   GemLedgerEntryType,
   LedgerEntryType,
+  MarketKind,
   MarketStatus,
   NotificationType,
   UserStatus,
 } from "@prisma/client";
+import { computeGuessSettlement } from "@/lib/closest-guess";
 import { isGlobalCategory } from "@/lib/categories";
 import { appConfig } from "@/lib/config";
 import { formatPoints, formatSignedPoints } from "@/lib/format";
@@ -18,6 +20,7 @@ import {
   validateMarketDraft,
   validateOutcomeDrafts,
   type OutcomeDraft,
+  type OutcomeView,
 } from "@/lib/markets";
 import { isYesNoMarket, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import {
@@ -187,6 +190,22 @@ function assertCategoryAllowed(
   }
 }
 
+/**
+ * CLOSEST_GUESS markets have no outcomes and no rake — the ante is the whole
+ * economy knob. Storage still needs the non-null parimutuel columns, so they
+ * pin to harmless values (rakeBps 0, maxStakePerUser = ante).
+ */
+function assertGuessMarketFields(anteAmount: number | undefined): number {
+  if (anteAmount === undefined) {
+    throw new Error("Closest-guess markets need an ante.");
+  }
+  assertSafeInt(anteAmount, "Ante");
+  if (anteAmount < 1) {
+    throw new Error("The ante must be at least 1 point.");
+  }
+  return anteAmount;
+}
+
 export async function createMarket(input: {
   actorId: string;
   fields: MarketFields;
@@ -195,30 +214,38 @@ export async function createMarket(input: {
   rakeBps?: number;
   openNow?: boolean;
   leagueId?: string;
+  kind?: MarketKind;
+  anteAmount?: number;
 }) {
+  const kind = input.kind ?? MarketKind.PARIMUTUEL;
   validateMarketDraft(input.fields);
-  validateOutcomeDrafts(input.outcomes);
+  const ante = kind === MarketKind.CLOSEST_GUESS ? assertGuessMarketFields(input.anteAmount) : null;
+  if (kind === MarketKind.PARIMUTUEL) {
+    validateOutcomeDrafts(input.outcomes);
+  }
 
   const { league, season } = await resolveMarketHome(input.leagueId, input.fields.closeTime);
   assertCategoryAllowed(league, input.fields.category);
 
-  const maxStakePerUser = season
-    ? league.defaultMaxStakePerUser
-    : (input.maxStakePerUser ?? appConfig.defaultMaxStakePerUser);
-  const rakeBps = season ? league.defaultRakeBps : (input.rakeBps ?? appConfig.rakeBps);
+  const maxStakePerUser =
+    ante ??
+    (season ? league.defaultMaxStakePerUser : (input.maxStakePerUser ?? appConfig.defaultMaxStakePerUser));
+  const rakeBps = ante !== null ? 0 : season ? league.defaultRakeBps : (input.rakeBps ?? appConfig.rakeBps);
   assertSafeInt(maxStakePerUser, "Stake cap");
   assertSafeInt(rakeBps, "Rake");
 
   const market = await prisma.market.create({
     data: {
       ...input.fields,
+      kind,
+      anteAmount: ante,
       leagueId: league.id,
       seasonId: season?.id ?? null,
       status: input.openNow ? MarketStatus.OPEN : MarketStatus.DRAFT,
       maxStakePerUser,
       rakeBps,
       createdById: input.actorId,
-      outcomes: outcomeCreateInput(input.outcomes),
+      ...(kind === MarketKind.PARIMUTUEL ? { outcomes: outcomeCreateInput(input.outcomes) } : {}),
       ...(input.openNow ? { openedById: input.actorId, openedAt: new Date() } : {}),
     },
     include: { outcomes: { orderBy: { sortOrder: "asc" } } },
@@ -238,9 +265,15 @@ export async function proposeMarket(input: {
   fields: MarketFields;
   outcomes: OutcomeDraft[];
   leagueId?: string;
+  kind?: MarketKind;
+  anteAmount?: number;
 }) {
+  const kind = input.kind ?? MarketKind.PARIMUTUEL;
   validateMarketDraft(input.fields);
-  validateOutcomeDrafts(input.outcomes);
+  const ante = kind === MarketKind.CLOSEST_GUESS ? assertGuessMarketFields(input.anteAmount) : null;
+  if (kind === MarketKind.PARIMUTUEL) {
+    validateOutcomeDrafts(input.outcomes);
+  }
 
   const { league, season } = await resolveMarketHome(input.leagueId, input.fields.closeTime);
   assertCategoryAllowed(league, input.fields.category);
@@ -248,13 +281,16 @@ export async function proposeMarket(input: {
   const market = await prisma.market.create({
     data: {
       ...input.fields,
+      kind,
+      anteAmount: ante,
       leagueId: league.id,
       seasonId: season?.id ?? null,
       status: MarketStatus.PROPOSED,
-      maxStakePerUser: season ? league.defaultMaxStakePerUser : appConfig.defaultMaxStakePerUser,
-      rakeBps: season ? league.defaultRakeBps : appConfig.rakeBps,
+      maxStakePerUser:
+        ante ?? (season ? league.defaultMaxStakePerUser : appConfig.defaultMaxStakePerUser),
+      rakeBps: ante !== null ? 0 : season ? league.defaultRakeBps : appConfig.rakeBps,
       createdById: input.proposerId,
-      outcomes: outcomeCreateInput(input.outcomes),
+      ...(kind === MarketKind.PARIMUTUEL ? { outcomes: outcomeCreateInput(input.outcomes) } : {}),
     },
     include: { outcomes: { orderBy: { sortOrder: "asc" } } },
   });
@@ -407,6 +443,7 @@ export async function updateMarket(
     maxStakePerUser?: number;
     rakeBps?: number;
     outcomes?: OutcomeDraft[];
+    anteAmount?: number;
   },
 ) {
   const market = await prisma.market.findUniqueOrThrow({
@@ -429,7 +466,7 @@ export async function updateMarket(
   validateMarketDraft(input);
   assertCategoryAllowed(market.league, input.category, market.category);
 
-  if (input.outcomes) {
+  if (input.outcomes && market.kind === MarketKind.PARIMUTUEL) {
     validateOutcomeDrafts(input.outcomes);
     // the outcome count is fixed at creation; labels/colors stay editable
     // until the first bet, and rows keep their sortOrder (no reordering)
@@ -437,6 +474,11 @@ export async function updateMarket(
       throw new Error("The number of outcomes is fixed once a market is created.");
     }
   }
+
+  const ante =
+    market.kind === MarketKind.CLOSEST_GUESS && input.anteAmount !== undefined
+      ? assertGuessMarketFields(input.anteAmount)
+      : null;
 
   await prisma.$transaction([
     prisma.market.update({
@@ -448,11 +490,18 @@ export async function updateMarket(
         closeTime: input.closeTime,
         resolveTime: input.resolveTime,
         resolutionSource: input.resolutionSource,
-        ...(input.maxStakePerUser !== undefined ? { maxStakePerUser: input.maxStakePerUser } : {}),
-        ...(input.rakeBps !== undefined ? { rakeBps: input.rakeBps } : {}),
+        ...(input.maxStakePerUser !== undefined && market.kind === MarketKind.PARIMUTUEL
+          ? { maxStakePerUser: input.maxStakePerUser }
+          : {}),
+        ...(input.rakeBps !== undefined && market.kind === MarketKind.PARIMUTUEL
+          ? { rakeBps: input.rakeBps }
+          : {}),
+        // the ante is the whole economy of a guess market — editable until
+        // the first entry (the storage stake cap mirrors it)
+        ...(ante !== null ? { anteAmount: ante, maxStakePerUser: ante } : {}),
       },
     }),
-    ...(input.outcomes ?? []).map((outcome, index) =>
+    ...(market.kind === MarketKind.PARIMUTUEL ? (input.outcomes ?? []) : []).map((outcome, index) =>
       prisma.outcome.update({
         where: { id: market.outcomes[index].id },
         data: {
@@ -590,6 +639,41 @@ async function writeSettlement(input: {
       throw new Error("That outcome doesn't belong to this market.");
     }
 
+    // closest-guess markets resolve through writeGuessSettlement (there's no
+    // winning outcome to name); only the cancel path shares this writer, where
+    // "refund everyone" means one ante back per entrant.
+    if (market.kind === MarketKind.CLOSEST_GUESS && !canceling) {
+      throw new Error("Closest-guess markets resolve with the actual date, not an outcome.");
+    }
+
+    const guessRefunds: SettlementResult | null =
+      market.kind === MarketKind.CLOSEST_GUESS
+        ? await (async () => {
+            const guesses = await tx.guess.findMany({
+              where: { marketId: input.marketId },
+              select: { userId: true },
+            });
+            const ante = market.anteAmount ?? 0;
+            const payouts = guesses.map((guess) => ({
+              userId: guess.userId,
+              amount: ante,
+              kind: "REFUND" as const,
+              winningStake: 0,
+            }));
+            const total = ante * guesses.length;
+            return {
+              mode: guesses.length === 0 ? ("EMPTY" as const) : ("REFUND_ALL" as const),
+              payouts,
+              winningPool: 0,
+              losingPool: 0,
+              rake: 0,
+              dust: 0,
+              totalIn: total,
+              totalOut: total,
+            };
+          })()
+        : null;
+
     const stakes = toOutcomeStakes(
       await tx.poolStake.findMany({ where: { marketId: input.marketId } }),
     );
@@ -634,9 +718,11 @@ async function writeSettlement(input: {
       voidStakes = [...byKey.values()];
     }
 
-    const result: SettlementResult = canceling
-      ? computeCancelRefunds(stakes)
-      : computeSettlementWithVoids(stakes, voidStakes, input.winningOutcomeId!, market.rakeBps);
+    const result: SettlementResult =
+      guessRefunds ??
+      (canceling
+        ? computeCancelRefunds(stakes)
+        : computeSettlementWithVoids(stakes, voidStakes, input.winningOutcomeId!, market.rakeBps));
     const voidRefunded = result.payouts
       .filter((payout) => payout.voided)
       .reduce((sum, payout) => sum + payout.amount, 0);
@@ -647,9 +733,11 @@ async function writeSettlement(input: {
       throw new Error("Settlement failed conservation check.");
     }
 
-    const poolTotal = market.outcomes.reduce((sum, outcome) => sum + outcome.pool, 0);
-    if (result.totalIn !== poolTotal) {
-      throw new Error("Settlement does not match market pools.");
+    if (!guessRefunds) {
+      const poolTotal = market.outcomes.reduce((sum, outcome) => sum + outcome.pool, 0);
+      if (result.totalIn !== poolTotal) {
+        throw new Error("Settlement does not match market pools.");
+      }
     }
 
     if (result.payouts.length > 0) {
@@ -904,6 +992,205 @@ export async function resolveMarket(
   return result;
 }
 
+/**
+ * Settles a CLOSEST_GUESS market against the actual date: guesses rank by
+ * distance (competition ranking, ties split), the pot pays 60/25/15 across
+ * the podium, and every guess freezes its finalRank and payout. No rake, no
+ * gems. Same transaction discipline as writeSettlement: serializable,
+ * conservation re-checked before any write, tolerant of full re-runs.
+ */
+export async function resolveClosestGuessMarket(
+  marketId: string,
+  adminId: string,
+  actualValue: Date,
+  resolutionSource: string,
+  notes?: string,
+) {
+  if (Number.isNaN(actualValue.getTime())) {
+    throw new Error("Enter the actual date to resolve against.");
+  }
+
+  const settled = await withSerializableRetry(async (tx) => {
+    const market = await tx.market.findUnique({
+      where: { id: marketId },
+      include: { league: { select: { slug: true, isGlobal: true } } },
+    });
+    if (!market) {
+      throw new Error("Market not found.");
+    }
+    if (market.kind !== MarketKind.CLOSEST_GUESS) {
+      throw new Error("Only closest-guess markets resolve against a date.");
+    }
+    if (market.status !== MarketStatus.OPEN && market.status !== MarketStatus.CLOSED) {
+      throw new Error("Only open or closed markets can be resolved.");
+    }
+
+    const guesses = await tx.guess.findMany({ where: { marketId } });
+    const ante = market.anteAmount ?? 0;
+
+    const result = computeGuessSettlement(
+      guesses.map((guess) => ({ userId: guess.userId, valueMs: guess.value.getTime() })),
+      actualValue.getTime(),
+      ante || 1,
+    );
+    if (result.totalIn !== result.totalOut + result.dust || result.totalIn !== ante * guesses.length) {
+      throw new Error("Settlement failed conservation check.");
+    }
+
+    if (result.payouts.length > 0) {
+      await tx.ledgerEntry.createMany({
+        data: result.payouts.map((payout) => ({
+          userId: payout.userId,
+          leagueId: market.leagueId,
+          seasonId: market.seasonId,
+          marketId,
+          type: LedgerEntryType.MARKET_PAYOUT,
+          amount: payout.amount,
+          description: `Closest guess — ranked #${payout.rank} on ${market.title}`,
+        })),
+      });
+    }
+
+    // freeze each entrant's rank and payout on the guess row (rank 1 is the
+    // "win" achievements count)
+    const payoutByUser = new Map(result.payouts.map((payout) => [payout.userId, payout.amount]));
+    const rankByUser = new Map(result.ranks.map((row) => [row.userId, row.rank]));
+    for (const guess of guesses) {
+      await tx.guess.update({
+        where: { id: guess.id },
+        data: {
+          finalRank: rankByUser.get(guess.userId) ?? null,
+          payout: payoutByUser.get(guess.userId) ?? 0,
+        },
+      });
+    }
+
+    await tx.market.update({
+      where: { id: marketId },
+      data: {
+        status: MarketStatus.RESOLVED,
+        closedAt: market.closedAt ?? new Date(),
+        closedById: market.closedById ?? adminId,
+        resolvedAt: new Date(),
+        resolvedById: adminId,
+      },
+    });
+
+    await tx.marketResolution.upsert({
+      where: { marketId },
+      update: {},
+      create: {
+        marketId,
+        winningOutcomeId: null,
+        actualValue,
+        resolutionSource,
+        notes,
+        winningPool: result.totalIn,
+        losingPool: 0,
+        rakeAmount: 0,
+        dustAmount: result.dust,
+        totalPaidOut: result.totalOut,
+        gemsMinted: 0,
+        createdById: adminId,
+      },
+    });
+
+    return { market, guesses, result };
+  });
+
+  await logAdminAction(
+    `Resolved closest-guess market ${settled.market.title} to ${actualValue.toISOString()}`,
+    adminId,
+    marketId,
+    { paidOut: settled.result.totalOut, dust: settled.result.dust },
+  );
+
+  // Post-commit achievement + notification passes, mirroring resolveMarket:
+  // failures are logged and repaired/ignored, never fail the settlement.
+  try {
+    await evaluateAchievementsForMarket(marketId);
+  } catch (error) {
+    await prisma.appLog.create({
+      data: {
+        level: AppLogLevel.WARN,
+        eventType: AppLogEventType.ADMIN_ACTION,
+        message: `Achievement evaluation failed after resolving ${settled.market.title}`,
+        marketId,
+        metadata: { error: error instanceof Error ? error.message : String(error) },
+      },
+    });
+  }
+
+  try {
+    const payoutByUser = new Map(
+      settled.result.payouts.map((payout) => [payout.userId, payout]),
+    );
+    const ante = settled.market.anteAmount ?? 0;
+    for (const guess of settled.guesses) {
+      const payout = payoutByUser.get(guess.userId);
+      const profit = (payout?.amount ?? 0) - ante;
+      await emitNotification({
+        userId: guess.userId,
+        type: NotificationType.MARKET_RESOLVED,
+        title: `Resolved: ${settled.market.title}`,
+        body: payout
+          ? `Your guess ranked #${payout.rank} — ${formatSignedPoints(profit)} pts.`
+          : `Your guess didn't place — ${formatSignedPoints(-ante)} pts.`,
+        href: marketPath(settled.market.league, marketId),
+        dedupeKey: `market-settled:${marketId}:user:${guess.userId}`,
+        metadata: { marketId, staked: ante, payout: payout?.amount ?? 0, profit },
+      });
+    }
+  } catch (error) {
+    await prisma.appLog.create({
+      data: {
+        level: AppLogLevel.WARN,
+        eventType: AppLogEventType.ADMIN_ACTION,
+        message: `Notification emission failed after resolving ${settled.market.title}`,
+        marketId,
+        metadata: { error: error instanceof Error ? error.message : String(error) },
+      },
+    });
+  }
+
+  return settled.result;
+}
+
+/** Dry-run of resolveClosestGuessMarket for the resolve form's preview. */
+export async function previewGuessSettlement(marketId: string, actualValue: Date) {
+  const market = await prisma.market.findUniqueOrThrow({ where: { id: marketId } });
+  if (market.kind !== MarketKind.CLOSEST_GUESS) {
+    throw new Error("Only closest-guess markets preview against a date.");
+  }
+  const guesses = await prisma.guess.findMany({
+    where: { marketId },
+    include: { user: { select: { name: true } } },
+  });
+  const result = computeGuessSettlement(
+    guesses.map((guess) => ({ userId: guess.userId, valueMs: guess.value.getTime() })),
+    actualValue.getTime(),
+    market.anteAmount ?? 1,
+  );
+  const nameByUser = new Map(guesses.map((guess) => [guess.userId, guess.user.name]));
+  const valueByUser = new Map(guesses.map((guess) => [guess.userId, guess.value]));
+  const payoutByUser = new Map(result.payouts.map((payout) => [payout.userId, payout.amount]));
+
+  return {
+    rows: result.ranks
+      .map((row) => ({
+        userId: row.userId,
+        name: nameByUser.get(row.userId) ?? row.userId,
+        value: valueByUser.get(row.userId)!,
+        rank: row.rank,
+        payout: payoutByUser.get(row.userId) ?? 0,
+        profit: (payoutByUser.get(row.userId) ?? 0) - (market.anteAmount ?? 0),
+      }))
+      .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name)),
+    dust: result.dust,
+    pot: result.totalIn,
+  };
+}
+
 export async function cancelMarket(marketId: string, adminId: string, reason: string) {
   const market = await prisma.market.findUniqueOrThrow({
     where: { id: marketId },
@@ -1120,11 +1407,33 @@ export async function getDashboardMarkets(
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: { outcomeId: true, amount: true },
       },
+      guesses: { select: { userId: true, value: true } },
     },
     orderBy: { closeTime: "asc" },
   });
 
   return markets.map((market) => {
+    if (market.kind === MarketKind.CLOSEST_GUESS) {
+      const ante = market.anteAmount ?? 0;
+      return {
+        id: market.id,
+        title: market.title,
+        category: market.category,
+        closeTime: market.closeTime,
+        status: market.status,
+        kind: market.kind,
+        anteAmount: ante,
+        outcomes: [] as OutcomeView[],
+        leader: null,
+        leaderTied: false,
+        pot: ante * market.guesses.length,
+        participants: market.guesses.length,
+        sparkPoints: [] as number[],
+        viewerStakes: [] as Array<{ outcomeId: string; label: string; amount: number }>,
+        viewerGuess: market.guesses.find((guess) => guess.userId === userId)?.value ?? null,
+      };
+    }
+
     const odds = getMarketOdds(market.outcomes);
     const labelById = new Map(
       market.outcomes.map((outcome) => [outcome.id, outcomeDisplayLabel(outcome)]),
@@ -1152,13 +1461,16 @@ export async function getDashboardMarkets(
       category: market.category,
       closeTime: market.closeTime,
       status: market.status,
+      kind: market.kind,
+      anteAmount: null as number | null,
       outcomes: odds.outcomes,
-      leader: odds.leader,
+      leader: odds.leader as OutcomeView | null,
       leaderTied: odds.leaderTied,
       pot: odds.pot,
       participants: new Set(market.poolStakes.map((stake) => stake.userId)).size,
       sparkPoints,
       viewerStakes,
+      viewerGuess: null as Date | null,
     };
   });
 }
@@ -1371,6 +1683,97 @@ export async function getMarketDetail(marketId: string, userId: string) {
     })),
     resolution: market.resolution,
     viewerStakes,
+  };
+}
+
+/** Just the market's kind — the detail view routes on it before the heavy read. */
+export async function getMarketKind(marketId: string) {
+  const market = await prisma.market.findUnique({
+    where: { id: marketId },
+    select: { kind: true },
+  });
+  return market?.kind ?? null;
+}
+
+/**
+ * The CLOSEST_GUESS market page read: the market, every guess in date order
+ * (with frozen ranks/payouts after settlement), the viewer's own entry, and
+ * the comment thread. The parimutuel odds machinery never runs here — there
+ * are no outcomes.
+ */
+export async function getGuessMarketDetail(marketId: string, userId: string) {
+  const market = await prisma.market.findUnique({
+    where: { id: marketId },
+    include: {
+      league: {
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          isGlobal: true,
+          balancePolicy: true,
+          categories: true,
+        },
+      },
+      guesses: {
+        orderBy: { value: "asc" },
+        include: { user: { select: { name: true, username: true } } },
+      },
+      comments: {
+        orderBy: { createdAt: "desc" },
+        include: { user: { select: { name: true, username: true } } },
+      },
+      resolution: true,
+    },
+  });
+
+  if (!market || market.kind !== MarketKind.CLOSEST_GUESS) {
+    return null;
+  }
+
+  const cosmetics = await getEquippedCosmetics([
+    ...market.guesses.map((guess) => guess.userId),
+    ...market.comments.map((comment) => comment.userId),
+  ]);
+
+  const ante = market.anteAmount ?? 0;
+
+  return {
+    id: market.id,
+    kind: market.kind,
+    league: market.league,
+    seasonId: market.seasonId,
+    title: market.title,
+    description: market.description,
+    category: market.category,
+    status: market.status,
+    closeTime: market.closeTime,
+    resolveTime: market.resolveTime,
+    resolutionSource: market.resolutionSource,
+    anteAmount: ante,
+    pot: ante * market.guesses.length,
+    createdAt: market.createdAt,
+    openedAt: market.openedAt,
+    guesses: market.guesses.map((guess) => ({
+      userId: guess.userId,
+      name: guess.user.name,
+      username: guess.user.username,
+      cosmetics: cosmetics.get(guess.userId) ?? null,
+      value: guess.value,
+      finalRank: guess.finalRank,
+      payout: guess.payout,
+    })),
+    viewerGuess: market.guesses.find((guess) => guess.userId === userId)?.value ?? null,
+    resolution: market.resolution,
+    comments: market.comments.map((comment) => ({
+      id: comment.id,
+      body: comment.body,
+      userName: comment.user.name,
+      userUsername: comment.user.username,
+      userId: comment.userId,
+      cosmetics: cosmetics.get(comment.userId) ?? null,
+      createdAt: comment.createdAt,
+    })),
   };
 }
 

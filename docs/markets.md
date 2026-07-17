@@ -69,6 +69,40 @@ data update, never a migration.
   emoji + label, anything else renders as stored. Dashboard tabs still derive from
   whatever open markets exist (`getOpenCategories`).
 
+## Closest-guess markets
+
+`Market.kind` splits the game: `PARIMUTUEL` (the default — everything above and below)
+or `CLOSEST_GUESS`, for questions with a date answer ("when is the baby born?"). The
+kind is fixed at creation and the two never mix: bets bounce off guess markets, guesses
+bounce off parimutuel markets, and each kind has its own settlement path.
+
+- **Entry**: every entrant antes the same `Market.anteAmount` (charged once as a
+  `BET_PLACED` ledger entry; pot = entrants × ante) and claims a date. Dates are
+  **first-come-first-claimed** per market (`Guess` `[marketId, value]` unique — the
+  timeline is a land grab) and one guess per member (`[marketId, userId]`). Guess
+  values are calendar dates pinned to **UTC midnight** (stored, compared, and displayed
+  as that calendar date regardless of anyone's timezone). Guesses are open (everyone
+  sees the board) and **movable until close** for free — the ante stays in the pot. `placeGuess` (`guess-service.ts`) is the money-moving write path and runs
+  in `withSerializableRetry`.
+- **Settlement** (`resolveClosestGuessMarket` + pure math in `src/lib/closest-guess.ts`):
+  the operator enters the actual date; guesses rank by distance (competition ranking —
+  ties share a rank and split the consumed podium positions' shares). The pot pays
+  **60/25/15** across the podium; with fewer than 3 entrants the unclaimed shares roll
+  to 1st. **No rake, no gems** — flooring remainders burn as dust, and
+  `totalIn === totalOut + dust` is re-checked at runtime. Each guess freezes its
+  `finalRank` and `payout`; the resolution row stores `actualValue` with
+  `winningPool = pot`, `losingPool = 0`, `winningOutcomeId` null (guess markets have no
+  outcomes — the RESOLVED ⇒ winning-outcome invariant is parimutuel-only).
+- **Standings and achievements**: entrants count as participants (ante + payout ledger
+  entries drive standings); for achievements, **rank 1 is the win** — podium money
+  without first place advances volume and category counts but not win streaks.
+  Longshot never applies (no odds). Cancel refunds every ante in full.
+- **UI**: the market page swaps odds machinery for a claimed-dates board and a date
+  picker (`GuessMarketView`); the dashboard card shows pot/ante/entrants. Management
+  lives on the market page — `/admin/markets/[id]` redirects guess markets there.
+  The effective close cutoff (above) is a parimutuel feature; closest-guess markets
+  close on `closeTime` or the manual close, with no backdating in v1.
+
 ## Where a market lives
 
 - A market with no explicit league belongs to the **Global League** (`seasonId` null —
