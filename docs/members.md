@@ -57,6 +57,9 @@ accounts hold nothing, so junk signups cost nothing.
   there).
 - Admin sub-pages (`/admin`, `/admin/markets`, `/admin/members`, `/admin/items`,
   `/admin/feedback`) share a tab-strip nav rendered by `src/app/(app)/admin/layout.tsx`.
+- The notification bell sits between the balance chip and the theme toggle at every
+  width; `/notifications` (most recent 50) is reached from it and is deliberately
+  absent from the nav lists.
 
 ## Usernames and profiles
 
@@ -188,3 +191,9 @@ Who gets notified:
 
 The `href` on each row is constructed server-side at emission (`marketPath` or a
 fixed admin route) and is safe to render as a link. Rows are kept indefinitely.
+
+The bell in the top nav shows the unread count and a dropdown of the most recent
+notifications; `/notifications` lists the most recent 50. Clicking a notification
+marks it read and navigates to its subject; "Mark all read" is available in both
+surfaces. The badge refreshes on navigation (the app layout is force-dynamic) and
+the mark-read actions revalidate the layout.

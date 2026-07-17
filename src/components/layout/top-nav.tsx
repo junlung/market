@@ -5,9 +5,11 @@ import { getGemBalance } from "@/lib/server/gem-service";
 import { getUserCosmetics } from "@/lib/server/item-service";
 import { getLeagueStacks } from "@/lib/server/league-service";
 import { getUserBalance } from "@/lib/server/market-service";
+import { getNotificationSnapshot } from "@/lib/server/notification-service";
 import { BalanceMenu } from "@/components/layout/balance-menu";
 import { NAV_LINKS } from "@/components/layout/nav-config";
 import { NavLinks } from "@/components/layout/nav-links";
+import { NotificationsMenu } from "@/components/layout/notifications-menu";
 import { SearchBox } from "@/components/layout/search-box";
 import { UserMenu } from "@/components/layout/user-menu";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -19,12 +21,13 @@ export async function TopNav() {
   // that lazily credits the weekly allowance on first activity of the week
   await ensureWeeklyAllowance(session.user.id);
 
-  const [balance, allowanceLanded, leagueStacks, gems, viewerCosmetics] = await Promise.all([
+  const [balance, allowanceLanded, leagueStacks, gems, viewerCosmetics, notifications] = await Promise.all([
     getUserBalance(session.user.id),
     hasCurrentWeekAllowance(session.user.id),
     getLeagueStacks(session.user.id),
     getGemBalance(session.user.id),
     getUserCosmetics(session.user.id),
+    getNotificationSnapshot(session.user.id, session.user.role === "ADMIN"),
   ]);
 
   return (
@@ -34,7 +37,9 @@ export async function TopNav() {
           <Link href="/dashboard" className="text-base font-bold tracking-tight">
             Prolly<span className="text-primary">Market</span>
           </Link>
-          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+          {/* hidden on phones — the row can't fit it beside the bell, and the
+              one-time beta notice carries the message there */}
+          <span className="hidden rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary sm:inline-flex">
             Beta
           </span>
         </div>
@@ -52,7 +57,8 @@ export async function TopNav() {
           gems={gems}
         />
 
-        {/* issue #3: the notification bell mounts here, between BalanceMenu and ThemeToggle */}
+        <NotificationsMenu unreadCount={notifications.unreadCount} items={notifications.recent} />
+
         <ThemeToggle />
 
         <UserMenu

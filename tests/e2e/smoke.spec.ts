@@ -378,3 +378,55 @@ test("feedback: member sends it from the user menu, admin triages it", async ({ 
   await expect(resolvedRow).toBeVisible();
   await expect(resolvedRow.getByRole("button", { name: "Reopen" })).toBeVisible();
 });
+
+test("notifications: a settled bet pings the bettor's bell and clicks through", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  const stamp = Date.now();
+  const title = `Notify market ${stamp}?`;
+
+  // admin creates and opens a fresh market (seeded fixtures untouched)
+  await signIn(page, adminEmail);
+  await page.goto("/admin/markets/new");
+  await page.getByLabel("Question").fill(title);
+  await page.getByLabel("Category").fill("Smoke");
+  await page.getByLabel(/Description/).fill("Created by the smoke suite for notifications.");
+  await page.getByLabel("Resolution source").fill("Smoke suite");
+  await page.getByRole("button", { name: "Create & open" }).click();
+  await expect(page.getByText(/Market created/i)).toBeVisible();
+
+  // member bets on it
+  const memberContext = await browser.newContext({ baseURL: baseURL! });
+  const memberPage = await memberContext.newPage();
+  await signIn(memberPage, memberEmail);
+  await memberPage.getByRole("link", { name: title }).first().click();
+  await memberPage.waitForURL(/markets\//);
+  await memberPage.locator('input[name="amount"]:visible').fill("5");
+  await memberPage.locator("button:visible", { hasText: /Bet 5 pts on Yes/i }).click();
+  await expect(memberPage.getByText(/You're in — 5 points on Yes/i).first()).toBeVisible();
+
+  // admin resolves it from the market page's Manage tab
+  await page.goto("/dashboard");
+  await page.getByRole("link", { name: title }).first().click();
+  await page.waitForURL(/markets\//);
+  await page.getByRole("tab", { name: "Manage" }).click();
+  await page.getByRole("button", { name: /Close betting now/i }).click();
+  await expect(page.getByText(/Betting closed/i)).toBeVisible();
+  await page.getByRole("button", { name: /^Yes \d+ pts$/ }).click();
+  await page.getByRole("button", { name: /Resolve Yes and pay out/i }).click();
+  // assert on durable page state, not the auto-dismissing toast
+  await expect(page.getByText(/Resolved: Yes/).first()).toBeVisible();
+
+  // the member's bell shows unread; the Resolved row navigates to the market
+  await memberPage.goto("/dashboard");
+  const bell = memberPage.getByRole("button", { name: /Notifications, \d+ unread/ });
+  await expect(bell).toBeVisible();
+  await bell.click();
+  await memberPage.getByRole("button", { name: new RegExp(`Resolved: ${title.slice(0, -1)}`) }).click();
+  await memberPage.waitForURL(/markets\//);
+  await expect(memberPage.getByRole("heading", { name: title })).toBeVisible();
+
+  await memberContext.close();
+});
