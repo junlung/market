@@ -132,5 +132,5 @@ Run against prod by prefixing the pulled URL:
   totals — **this mints gems retroactively; sanity-check the totals** — then re-run
   with `-- --execute`. Author the old→canonical `MAPPING` in
   `src/lib/server/remap-categories.ts` against prod's actual values first; unmapped
-  values fall to Wildcard. Re-runnable: canonical values are left alone and grants are
+  values fall to Misc. Re-runnable: canonical values are left alone and grants are
   idempotent.

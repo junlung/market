@@ -14,7 +14,7 @@ export type CategoryDef = {
   label: string;
   /** decoration for tabs/cards and the generated achievement glyphs */
   emoji: string;
-  /** Wildcard is the escape hatch for jokes and one-offs — no achievements */
+  /** Misc is the escape hatch for jokes and one-offs — no achievements */
   achievementEligible: boolean;
 };
 
@@ -24,12 +24,12 @@ export const GLOBAL_CATEGORIES = [
   { slug: "news", label: "News", emoji: "📰", achievementEligible: true },
   { slug: "pop-culture", label: "Pop Culture", emoji: "🍿", achievementEligible: true },
   { slug: "politics", label: "Politics", emoji: "🏛️", achievementEligible: true },
-  { slug: "wildcard", label: "Wildcard", emoji: "🃏", achievementEligible: false },
+  { slug: "misc", label: "Misc", emoji: "🃏", achievementEligible: false },
 ] as const satisfies readonly CategoryDef[];
 
 export type GlobalCategorySlug = (typeof GLOBAL_CATEGORIES)[number]["slug"];
 
-/** The slugs that generate win-count achievements (everything but Wildcard). */
+/** The slugs that generate win-count achievements (everything but Misc). */
 export type EligibleCategorySlug = Extract<
   (typeof GLOBAL_CATEGORIES)[number],
   { achievementEligible: true }

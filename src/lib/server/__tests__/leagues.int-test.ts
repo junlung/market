@@ -1010,7 +1010,7 @@ describe.skipIf(!enabled)("custom leagues (2b)", () => {
     await expect(
       createMarket({ actorId: admin.id, fields: fields("Jokes"), outcomes }),
     ).rejects.toThrow(/categor/i);
-    await createMarket({ actorId: admin.id, fields: fields("wildcard"), outcomes });
+    await createMarket({ actorId: admin.id, fields: fields("misc"), outcomes });
 
     // custom leagues start with ["General"]; other labels need the owner's list
     await expect(

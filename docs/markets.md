@@ -41,7 +41,7 @@ Validation rules (count, label rules, duplicate detection) live in
 data update, never a migration.
 
 - **Global markets** take a slug from the canonical list in `src/lib/categories.ts`
-  (`{ slug, label, emoji, achievementEligible }`). **Wildcard** is the escape hatch for
+  (`{ slug, label, emoji, achievementEligible }`). **Misc** is the escape hatch for
   jokes and one-offs — it earns no achievements. Adding a category is a one-line
   change; slugs are effectively permanent once category achievements mint, because
   achievement keys embed them.

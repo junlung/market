@@ -11,7 +11,7 @@ function fact(overrides: Partial<ResolvedMarketFact> & { marketId: string }): Re
   return {
     resolvedAt: new Date("2026-07-01T00:00:00Z"),
     won: false,
-    category: "wildcard",
+    category: "misc",
     minWinningImpliedProb: null,
     ...overrides,
   };
@@ -141,9 +141,9 @@ describe("category win tiers", () => {
     expect(earned).toContain("cat-news-3");
   });
 
-  it("wildcard and non-canonical categories earn nothing", () => {
+  it("misc and non-canonical categories earn nothing", () => {
     const earned = evaluateAchievements([
-      ...categorySeries("wildcard", 10),
+      ...categorySeries("misc", 10),
       ...categorySeries("Sports", 10), // pre-remap free text ≠ the slug
     ]);
     expect(earned.some((key) => key.startsWith("cat-"))).toBe(false);

@@ -63,7 +63,7 @@ export const LONGSHOT_MAX_IMPLIED_PROB = 0.1;
 
 /**
  * Six win-count tiers per eligible category, generated so a new category is a
- * one-line change in categories.ts. Wildcard generates nothing.
+ * one-line change in categories.ts. Misc generates nothing.
  */
 const CATEGORY_ACHIEVEMENTS: readonly AchievementDef[] = GLOBAL_CATEGORIES.filter(
   (category) => category.achievementEligible,

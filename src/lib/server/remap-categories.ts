@@ -11,7 +11,7 @@
  * same [userId, achievementKey] idempotency as the live path.
  *
  * The old→canonical mapping is authored at run time in `MAPPING` below;
- * anything unmapped falls to Wildcard (which earns nothing).
+ * anything unmapped falls to Misc (which earns nothing).
  */
 import { MarketStatus } from "@prisma/client";
 import {
@@ -29,14 +29,16 @@ const MAPPING: Record<string, string> = {
   Sports: "sports",
   Weather: "weather",
   Music: "pop-culture",
-  Friends: "wildcard",
+  Friends: "misc",
+  // the escape-hatch slug shipped briefly as "wildcard" before renaming to misc
+  wildcard: "misc",
 };
 
 function targetFor(category: string) {
   if (isGlobalCategory(category)) {
     return category; // already canonical — leave it alone
   }
-  return MAPPING[category] ?? "wildcard";
+  return MAPPING[category] ?? "misc";
 }
 
 export async function runCategoryRemap({ execute }: { execute: boolean }) {
@@ -54,9 +56,9 @@ export async function runCategoryRemap({ execute }: { execute: boolean }) {
   for (const group of groups) {
     const target = targetFor(group.category);
     const marker = target === group.category ? "  =" : "  →";
-    const unmapped = target === "wildcard" && !(group.category in MAPPING) && !isGlobalCategory(group.category);
+    const unmapped = target === "misc" && !(group.category in MAPPING) && !isGlobalCategory(group.category);
     console.log(
-      `${marker} ${group.category} → ${target} (${group._count._all} markets)${unmapped ? "  [UNMAPPED — defaulting to wildcard]" : ""}`,
+      `${marker} ${group.category} → ${target} (${group._count._all} markets)${unmapped ? "  [UNMAPPED — defaulting to misc]" : ""}`,
     );
   }
 

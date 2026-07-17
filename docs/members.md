@@ -133,7 +133,7 @@ amounts, and badge attachments in one place:
 - **Category win tiers**, generated per achievement-eligible canonical category
   (`src/lib/categories.ts`) × `CATEGORY_WIN_TIERS`: keys `cat-<slug>-<wins>` at
   3/10/25/50/100/500 wins (Fan → Buff → Obsessive → Oracle → Savant → Demigod).
-  Wildcard generates nothing. **Keys are permanent** — the `[userId, achievementKey]`
+  Misc generates nothing. **Keys are permanent** — the `[userId, achievementKey]`
   unique is the idempotency key, so category slugs must never change once minted.
 
 - **Global League only**, and only RESOLVED markets count — canceled markets advance
