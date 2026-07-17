@@ -13,6 +13,7 @@ import {
   revokeLeagueInvite,
   rotateInviteCode,
   setMemberRole,
+  updateLeagueCategories,
   updateLeagueSettings,
 } from "@/lib/server/league-service";
 import type { ActionResult } from "@/lib/server/market-service";
@@ -258,6 +259,28 @@ export async function declineLeagueInviteAction(
     return { success: "Invite declined." };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Failed to decline the invite." };
+  }
+}
+
+export async function updateLeagueCategoriesAction(
+  _: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const session = await requireSession();
+  const leagueId = String(formData.get("leagueId") ?? "");
+  const slug = String(formData.get("slug") ?? "");
+  const categories = formData.getAll("categories").map(String);
+
+  if (!leagueId) {
+    return { error: "Invalid league." };
+  }
+
+  try {
+    await updateLeagueCategories(leagueId, session.user.id, categories);
+    revalidatePath(`/l/${slug}`, "layout");
+    return { success: "Categories updated." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to update categories." };
   }
 }
 

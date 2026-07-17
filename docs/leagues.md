@@ -33,6 +33,12 @@ Any member can create one. Custom leagues are invite-only and route-scoped under
 - **Economy settings** (`startingStack`, `weeklyAllowance`, `defaultRakeBps`,
   `defaultMaxStakePerUser`) are set at creation, editable until the first season
   starts, then locked for the league's lifetime.
+- **Market categories** (`League.categories`): an owner-curated label list (1–12
+  entries, seeded as `["General"]` at creation) that the league's market form offers
+  and `market-service` enforces. Unlike the economy settings it stays editable —
+  markets keep the string they were created with, so removing a label never touches
+  existing markets. The Global League ignores this column; its categories are the
+  canonical code list (`docs/markets.md`).
 - **Joining — three paths, all the joiner's choice** (there is no direct-add and no
   league browser):
   1. **Code form:** type the league's rotating 8-character code on `/leagues`

@@ -56,7 +56,7 @@ export async function getUserResolvedHistory(userId: string): Promise<ResolvedMa
     select: {
       outcomeId: true,
       marketId: true,
-      market: { select: { resolvedAt: true, winningOutcomeId: true } },
+      market: { select: { resolvedAt: true, winningOutcomeId: true, category: true } },
     },
   });
 
@@ -64,13 +64,17 @@ export async function getUserResolvedHistory(userId: string): Promise<ResolvedMa
     return [];
   }
 
-  const byMarket = new Map<string, { resolvedAt: Date; winningOutcomeId: string | null; won: boolean }>();
+  const byMarket = new Map<
+    string,
+    { resolvedAt: Date; winningOutcomeId: string | null; won: boolean; category: string }
+  >();
   for (const stake of stakes) {
     const entry = byMarket.get(stake.marketId) ?? {
       // resolvedAt is set on every RESOLVED market; fall back defensively
       resolvedAt: stake.market.resolvedAt ?? new Date(0),
       winningOutcomeId: stake.market.winningOutcomeId,
       won: false,
+      category: stake.market.category,
     };
     if (stake.outcomeId === stake.market.winningOutcomeId) {
       entry.won = true;
@@ -111,6 +115,7 @@ export async function getUserResolvedHistory(userId: string): Promise<ResolvedMa
     marketId,
     resolvedAt: market.resolvedAt,
     won: market.won,
+    category: market.category,
     minWinningImpliedProb: minProbByMarket.get(marketId) ?? null,
   }));
 }

@@ -126,3 +126,11 @@ Run against prod by prefixing the pulled URL:
   grant, and achievement into the gem ledger. Wholly re-runnable: each grant is
   idempotent, and each settlement is replay-verified against its persisted stakes
   before converting (mismatches are skipped and logged, never guessed).
+- `remap-categories` — one-time Global League remap of free-text categories to
+  canonical slugs, followed by a full achievement re-evaluation (the 48h cron sweep
+  never reaches old markets). Dry-run by default and prints the exact grants and gem
+  totals — **this mints gems retroactively; sanity-check the totals** — then re-run
+  with `-- --execute`. Author the old→canonical `MAPPING` in
+  `src/lib/server/remap-categories.ts` against prod's actual values first; unmapped
+  values fall to Wildcard. Re-runnable: canonical values are left alone and grants are
+  idempotent.

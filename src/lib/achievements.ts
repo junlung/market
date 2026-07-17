@@ -8,6 +8,23 @@
  * GemLedgerEntry [userId, achievementKey] unique.
  */
 
+import { GLOBAL_CATEGORIES, type EligibleCategorySlug } from "@/lib/categories";
+
+/** Win-count tiers generated per achievement-eligible category. */
+export const CATEGORY_WIN_TIERS = [
+  { wins: 3, gems: 15, title: "Fan" },
+  { wins: 10, gems: 50, title: "Buff" },
+  { wins: 25, gems: 100, title: "Obsessive" },
+  { wins: 50, gems: 200, title: "Oracle" },
+  { wins: 100, gems: 400, title: "Savant" },
+  { wins: 500, gems: 1500, title: "Demigod" },
+] as const;
+
+type CategoryTierWins = (typeof CATEGORY_WIN_TIERS)[number]["wins"];
+
+/** Keys are permanent — the [userId, achievementKey] unique is the idempotency key. */
+export type CategoryAchievementKey = `cat-${EligibleCategorySlug}-${CategoryTierWins}`;
+
 export type AchievementKey =
   | "first-win"
   | "streak-3"
@@ -16,7 +33,8 @@ export type AchievementKey =
   | "longshot-win"
   | "volume-10"
   | "volume-50"
-  | "volume-100";
+  | "volume-100"
+  | CategoryAchievementKey;
 
 export type AchievementDef = {
   key: AchievementKey;
@@ -42,6 +60,22 @@ export const SHOWCASE_LIMIT = 3;
 
 /** A win qualifies as a longshot when the bet's pre-bet implied probability was below this. */
 export const LONGSHOT_MAX_IMPLIED_PROB = 0.1;
+
+/**
+ * Six win-count tiers per eligible category, generated so a new category is a
+ * one-line change in categories.ts. Wildcard generates nothing.
+ */
+const CATEGORY_ACHIEVEMENTS: readonly AchievementDef[] = GLOBAL_CATEGORIES.filter(
+  (category) => category.achievementEligible,
+).flatMap((category) =>
+  CATEGORY_WIN_TIERS.map((tier) => ({
+    key: `cat-${category.slug}-${tier.wins}` as CategoryAchievementKey,
+    name: `${category.label} ${tier.title}`,
+    description: `Win ${tier.wins} ${category.label} markets.`,
+    emoji: category.emoji,
+    gems: tier.gems,
+  })),
+);
 
 export const ACHIEVEMENTS: readonly AchievementDef[] = [
   {
@@ -112,6 +146,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
     badgeName: "Centurion",
     badgeStyle: { renderer: "emoji", glyph: "💯" },
   },
+  ...CATEGORY_ACHIEVEMENTS,
 ];
 
 export const ACHIEVEMENTS_BY_KEY = new Map(ACHIEVEMENTS.map((def) => [def.key, def]));
@@ -137,6 +172,8 @@ export type ResolvedMarketFact = {
   marketId: string;
   resolvedAt: Date;
   won: boolean;
+  /** the market's stored category value — canonical slugs count toward category tiers */
+  category: string;
   /**
    * The lowest pre-bet implied probability among the user's bets on the
    * winning outcome; null when the user didn't win or the probability isn't
@@ -187,6 +224,24 @@ export function evaluateAchievements(history: ResolvedMarketFact[]): Achievement
   for (const { key, count } of VOLUME_KEYS) {
     if (ordered.length >= count) {
       earned.push(key);
+    }
+  }
+
+  const winsByCategory = new Map<string, number>();
+  for (const fact of ordered) {
+    if (fact.won) {
+      winsByCategory.set(fact.category, (winsByCategory.get(fact.category) ?? 0) + 1);
+    }
+  }
+  for (const category of GLOBAL_CATEGORIES) {
+    if (!category.achievementEligible) {
+      continue;
+    }
+    const wins = winsByCategory.get(category.slug) ?? 0;
+    for (const tier of CATEGORY_WIN_TIERS) {
+      if (wins >= tier.wins) {
+        earned.push(`cat-${category.slug}-${tier.wins}` as CategoryAchievementKey);
+      }
     }
   }
 

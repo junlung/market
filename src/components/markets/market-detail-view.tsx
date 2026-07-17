@@ -30,6 +30,7 @@ import {
   formatPoints,
   formatSignedPoints,
 } from "@/lib/format";
+import { categoryDisplay, globalCategoryOptions, leagueCategoryOptions } from "@/lib/categories";
 import { getMarketStatusLabel, isMarketEditable } from "@/lib/markets";
 import {
   isYesNoMarket,
@@ -187,6 +188,11 @@ export async function MarketDetailView({ marketId, side, outcomeParam, expectedL
               // custom-league markets inherit the league's economy settings,
               // so propose mode hides the rake/stake fields there
               mode={market.league.isGlobal ? "admin" : "propose"}
+              categoryOptions={
+                market.league.isGlobal
+                  ? globalCategoryOptions()
+                  : leagueCategoryOptions(market.league.categories)
+              }
               market={{
                 id: market.id,
                 title: market.title,
@@ -251,7 +257,7 @@ export async function MarketDetailView({ marketId, side, outcomeParam, expectedL
               </Link>
             ) : null}
             <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">
-              {market.category}
+              {categoryDisplay(market.category)}
             </span>
             <StatusBadge label={getMarketStatusLabel(market.status)} />
             {isOpen ? <CountdownBadge closeTime={market.closeTime} /> : null}

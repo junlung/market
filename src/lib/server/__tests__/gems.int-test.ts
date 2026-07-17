@@ -258,7 +258,7 @@ describe.skipIf(!enabled)("gems integration", () => {
       fields: {
         title: "Custom league rake stays points-only?",
         description: "Resolves YES — custom rake must never mint gems.",
-        category: "Trip",
+        category: "General",
         closeTime: new Date(Date.now() + 60 * 60 * 1000),
         resolveTime: new Date(Date.now() + 90 * 60 * 1000),
         resolutionSource: "group consensus",
@@ -434,7 +434,7 @@ describe.skipIf(!enabled)("gems integration", () => {
       fields: {
         title: "Custom placement gems?",
         description: "Resolves NO — custom placements never mint gems.",
-        category: "Trip",
+        category: "General",
         closeTime: new Date(Date.now() + 30 * 60 * 1000),
         resolveTime: new Date(Date.now() + 45 * 60 * 1000),
         resolutionSource: "group consensus",

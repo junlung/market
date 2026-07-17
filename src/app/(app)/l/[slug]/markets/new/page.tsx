@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { createMarketAction } from "@/app/actions/markets";
 import { proposeMarketAction } from "@/app/actions/proposals";
 import { MarketForm } from "@/components/admin/market-form";
+import { leagueCategoryOptions } from "@/lib/categories";
 import { PageHeader } from "@/components/ui/page-header";
 import { canOperateLeague, getActiveSeason, getLeagueForViewer } from "@/lib/server/league-service";
 import { requireSession } from "@/lib/session";
@@ -47,6 +48,7 @@ export default async function NewLeagueMarketPage({
         leagueId={league.id}
         allowOpenNow={canManage}
         submitLabel={canManage ? "Create draft" : "Submit proposal"}
+        categoryOptions={leagueCategoryOptions(league.categories)}
       />
     </section>
   );

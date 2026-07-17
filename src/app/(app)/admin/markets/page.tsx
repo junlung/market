@@ -4,6 +4,7 @@ import type { Route } from "next";
 import clsx from "clsx";
 import { marketStatusAction } from "@/app/actions/markets";
 import { ProposalReview } from "@/components/admin/proposal-review";
+import { categoryDisplay } from "@/lib/categories";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { buttonClasses } from "@/components/ui/button";
@@ -81,7 +82,7 @@ export default async function AdminMarketsPage({
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusBadge label={market.status.toLowerCase()} />
-                    <span className="text-xs text-faint">{market.category}</span>
+                    <span className="text-xs text-faint">{categoryDisplay(market.category)}</span>
                   </div>
                   <Link
                     href={`/admin/markets/${market.id}`}

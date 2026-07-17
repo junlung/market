@@ -1,6 +1,7 @@
 import { createMarketAction } from "@/app/actions/markets";
 import { proposeMarketAction } from "@/app/actions/proposals";
 import { MarketForm } from "@/components/admin/market-form";
+import { globalCategoryOptions } from "@/lib/categories";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireSession } from "@/lib/session";
 
@@ -19,9 +20,18 @@ export default async function NewMarketPage() {
         }
       />
       {isAdmin ? (
-        <MarketForm action={createMarketAction} mode="admin" />
+        <MarketForm
+          action={createMarketAction}
+          mode="admin"
+          categoryOptions={globalCategoryOptions()}
+        />
       ) : (
-        <MarketForm action={proposeMarketAction} mode="propose" submitLabel="Submit proposal" />
+        <MarketForm
+          action={proposeMarketAction}
+          mode="propose"
+          submitLabel="Submit proposal"
+          categoryOptions={globalCategoryOptions()}
+        />
       )}
     </section>
   );

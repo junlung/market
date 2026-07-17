@@ -4,6 +4,7 @@ import { CalendarClock } from "lucide-react";
 import { updateLeagueSettingsAction } from "@/app/actions/leagues";
 import { DeleteLeagueCard } from "@/components/leagues/delete-league-card";
 import { InviteCodeCard } from "@/components/leagues/invite-code-card";
+import { LeagueCategoriesForm } from "@/components/leagues/league-categories-form";
 import { InviteMemberForm } from "@/components/leagues/invite-member-form";
 import { LeagueForm } from "@/components/leagues/league-form";
 import { MemberRoleToggle } from "@/components/leagues/member-role-row";
@@ -186,6 +187,22 @@ export default async function LeagueSettingsPage({
               settingsLocked={settingsLocked}
               submitLabel="Save settings"
             />
+            <div className="rounded-xl border border-border bg-surface p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-faint">
+                Market categories
+              </p>
+              <p className="mt-1 text-sm text-muted">
+                What markets in this league can be filed under. Existing markets keep their
+                category if you remove it here.
+              </p>
+              <div className="mt-3">
+                <LeagueCategoriesForm
+                  leagueId={league.id}
+                  slug={slug}
+                  categories={league.categories}
+                />
+              </div>
+            </div>
             <DeleteLeagueCard
               leagueId={league.id}
               leagueName={league.name}

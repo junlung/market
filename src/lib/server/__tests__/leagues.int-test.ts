@@ -38,6 +38,7 @@ import {
   revokeLeagueInvite,
   rotateInviteCode,
   setMemberRole,
+  updateLeagueCategories,
   updateLeagueSettings,
 } from "@/lib/server/league-service";
 import {
@@ -444,7 +445,7 @@ describe.skipIf(!enabled)("custom leagues (2b)", () => {
       fields: {
         title: "Does the boat actually leave the dock?",
         description: "Resolves YES if we are on the water by noon Saturday.",
-        category: "Trip",
+        category: "General",
         closeTime: new Date(Date.now() + 60 * 60 * 1000),
         resolveTime: new Date(Date.now() + 90 * 60 * 1000),
         resolutionSource: "group consensus",
@@ -491,7 +492,7 @@ describe.skipIf(!enabled)("custom leagues (2b)", () => {
       fields: {
         title: "Private league market?",
         description: "Members only, this is the test for that.",
-        category: "Trip",
+        category: "General",
         closeTime: new Date(Date.now() + 60 * 60 * 1000),
         resolveTime: new Date(Date.now() + 90 * 60 * 1000),
         resolutionSource: "test",
@@ -558,7 +559,7 @@ describe.skipIf(!enabled)("custom leagues (2b)", () => {
       fields: {
         title: "Who does the dishes tonight?",
         description: "Loser of the coin flip, obviously. Resolves by group vote.",
-        category: "Trip",
+        category: "General",
         closeTime: new Date(Date.now() + 60 * 60 * 1000),
         resolveTime: new Date(Date.now() + 90 * 60 * 1000),
         resolutionSource: "group vote",
@@ -657,7 +658,7 @@ describe.skipIf(!enabled)("custom leagues (2b)", () => {
       fields: {
         title: "Does anyone catch a fish?",
         description: "Resolves YES if any member lands a fish before Sunday 6pm.",
-        category: "Trip",
+        category: "General",
         closeTime: new Date(Date.now() + 60 * 60 * 1000),
         resolveTime: new Date(Date.now() + 90 * 60 * 1000),
         resolutionSource: "photo evidence",
@@ -726,7 +727,7 @@ describe.skipIf(!enabled)("custom leagues (2b)", () => {
         fields: {
           title: "Will this market outlive the season?",
           description: "It should never exist — closes after the season ends.",
-          category: "Trip",
+          category: "General",
           closeTime: new Date(season.endsAt.getTime() + 60 * 60 * 1000),
           resolveTime: new Date(season.endsAt.getTime() + 2 * 60 * 60 * 1000),
           resolutionSource: "test",
@@ -986,6 +987,54 @@ describe.skipIf(!enabled)("custom leagues (2b)", () => {
     });
   });
 
+  it("constrains market categories: canonical slugs for Global, owner-curated per league", async () => {
+    const admin = await createUser(0, UserRole.ADMIN);
+    const owner = await createUser(0);
+    const league = await createCustomLeague(owner.id);
+    await startSeason(league.id, owner.id);
+
+    const fields = (category: string) => ({
+      title: "Category validation market",
+      description: "Exists to exercise the category constraint.",
+      category,
+      closeTime: new Date(Date.now() + 60 * 60 * 1000),
+      resolveTime: new Date(Date.now() + 90 * 60 * 1000),
+      resolutionSource: "test",
+    });
+    const outcomes = [
+      { label: "Yes", color: "green" },
+      { label: "No", color: "red" },
+    ];
+
+    // Global markets take canonical slugs only
+    await expect(
+      createMarket({ actorId: admin.id, fields: fields("Jokes"), outcomes }),
+    ).rejects.toThrow(/categor/i);
+    await createMarket({ actorId: admin.id, fields: fields("wildcard"), outcomes });
+
+    // custom leagues start with ["General"]; other labels need the owner's list
+    await expect(
+      createMarket({ actorId: owner.id, leagueId: league.id, fields: fields("Trip"), outcomes }),
+    ).rejects.toThrow(/categor/i);
+    await updateLeagueCategories(league.id, owner.id, ["General", "Trip"]);
+    await createMarket({
+      actorId: owner.id,
+      leagueId: league.id,
+      fields: fields("Trip"),
+      outcomes,
+    });
+
+    // only the owner curates the list, and the Global list is code-fixed
+    const member = await createUser(0);
+    await joinLeagueByCode(member.id, league.inviteCode!);
+    await expect(updateLeagueCategories(league.id, member.id, ["X Y"])).rejects.toThrow(
+      /permission/i,
+    );
+    await expect(
+      updateLeagueCategories((await ensureGlobalLeague()).id, admin.id, ["Nope"]),
+    ).rejects.toThrow(/fixed in code/i);
+  });
+
   describe("league deletion", () => {
     it("owner deletes a played-out league: full cleanup, trophies and global economy survive", async () => {
       const owner = await createUser(500);
@@ -1000,7 +1049,7 @@ describe.skipIf(!enabled)("custom leagues (2b)", () => {
         fields: {
           title: "Does the league survive the weekend?",
           description: "Resolves YES if nobody rage-quits before Sunday.",
-          category: "Trip",
+          category: "General",
           closeTime: new Date(Date.now() + 60 * 60 * 1000),
           resolveTime: new Date(Date.now() + 90 * 60 * 1000),
           resolutionSource: "group consensus",

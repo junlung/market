@@ -124,12 +124,17 @@ includes a manual grant tool.
 
 ## Achievements
 
-Eight achievement keys are defined in `src/lib/achievements.ts` — the definitions, gem
+Achievement keys are defined in `src/lib/achievements.ts` — the definitions, gem
 amounts, and badge attachments in one place:
 
-`first-win`, `streak-3/5/10` (consecutive wins by resolution order), `longshot-win`
-(a win whose pre-bet implied probability was under 10%, reconstructed from bet
-snapshots), `volume-10/50/100` (settled Global markets participated in).
+- `first-win`, `streak-3/5/10` (consecutive wins by resolution order), `longshot-win`
+  (a win whose pre-bet implied probability was under 10%, reconstructed from bet
+  snapshots), `volume-10/50/100` (settled Global markets participated in).
+- **Category win tiers**, generated per achievement-eligible canonical category
+  (`src/lib/categories.ts`) × `CATEGORY_WIN_TIERS`: keys `cat-<slug>-<wins>` at
+  3/10/25/50/100/500 wins (Fan → Buff → Obsessive → Oracle → Savant → Demigod).
+  Wildcard generates nothing. **Keys are permanent** — the `[userId, achievementKey]`
+  unique is the idempotency key, so category slugs must never change once minted.
 
 - **Global League only**, and only RESOLVED markets count — canceled markets advance
   nothing.

@@ -233,7 +233,7 @@ describe.skipIf(!enabled)("notifications integration", () => {
       fields: {
         title: "Self-notification test market?",
         description: "integration test market for notifications",
-        category: "Test",
+        category: "wildcard",
         closeTime: new Date(Date.now() + 60 * 60 * 1000),
         resolveTime: new Date(Date.now() + 2 * 60 * 60 * 1000),
         resolutionSource: "test",

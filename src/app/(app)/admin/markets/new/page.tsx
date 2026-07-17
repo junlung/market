@@ -1,5 +1,6 @@
 import { createMarketAction } from "@/app/actions/markets";
 import { MarketForm } from "@/components/admin/market-form";
+import { globalCategoryOptions } from "@/lib/categories";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAdminSession } from "@/lib/session";
 
@@ -12,7 +13,7 @@ export default async function AdminNewMarketPage() {
         title="Create market"
         description="Create as a draft to review later, or open it for betting immediately."
       />
-      <MarketForm action={createMarketAction} mode="admin" />
+      <MarketForm action={createMarketAction} mode="admin" categoryOptions={globalCategoryOptions()} />
     </section>
   );
 }

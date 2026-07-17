@@ -136,8 +136,9 @@ OPEN/CLOSED market can resolve); the partial unique on `(userId, marketId)` for
 `RAKE_CONVERSION` rows is a backstop, not the primary guard.
 
 **Every gem-tuning constant lives in `src/lib/achievements.ts`**: `GEM_STARTING_GRANT`
-(1000), `SEASON_PLACEMENT_GEMS` ([100, 50, 25]), and each achievement's gem amount.
-Retune the economy there. Store prices live on `Item.storeCost` (managed in the admin
+(1000), `SEASON_PLACEMENT_GEMS` ([100, 50, 25]), each achievement's gem amount, and
+`CATEGORY_WIN_TIERS` (category win achievements: 15/50/100/200/400/1500 gems at
+3/10/25/50/100/500 wins per eligible category). Retune the economy there. Store prices live on `Item.storeCost` (managed in the admin
 item editor; `null` = not purchasable).
 
 Gem balances, breakdowns, and admin adjustments go through

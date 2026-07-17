@@ -9,6 +9,7 @@
     "create-admin": "tsx scripts/create-admin.ts",
     "reset-password": "tsx scripts/reset-password.ts",
     "backfill-gems": "tsx scripts/backfill-gems.ts",
+    "remap-categories": "tsx scripts/remap-categories.ts",
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint",

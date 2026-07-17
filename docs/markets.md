@@ -34,6 +34,27 @@ Transitions live in `src/lib/server/market-service.ts` and are audit-logged to `
 Validation rules (count, label rules, duplicate detection) live in
 `src/lib/markets.ts`.
 
+## Categories
+
+`Market.category` is a plain String column constrained at the service layer
+(`assertCategoryAllowed` in `market-service.ts`), not in Postgres — remapping stays a
+data update, never a migration.
+
+- **Global markets** take a slug from the canonical list in `src/lib/categories.ts`
+  (`{ slug, label, emoji, achievementEligible }`). **Wildcard** is the escape hatch for
+  jokes and one-offs — it earns no achievements. Adding a category is a one-line
+  change; slugs are effectively permanent once category achievements mint, because
+  achievement keys embed them.
+- **Custom-league markets** take one of the league's owner-curated labels
+  (`League.categories`, edited in league settings — see `docs/leagues.md`). No slugs,
+  no achievements.
+- Edits may keep a market's existing category even if it's no longer in the list
+  (values that predate a list change or the one-time slug remap), but any *change*
+  must land on a current option.
+- Display goes through `categoryDisplay`/`categoryLabel`: canonical slugs render
+  emoji + label, anything else renders as stored. Dashboard tabs still derive from
+  whatever open markets exist (`getOpenCategories`).
+
 ## Where a market lives
 
 - A market with no explicit league belongs to the **Global League** (`seasonId` null —

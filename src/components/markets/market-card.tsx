@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { Trophy, Users } from "lucide-react";
+import { categoryDisplay } from "@/lib/categories";
 import { formatChance, formatCompactPoints, formatPoints } from "@/lib/format";
 import { isYesNoMarket, outcomeColorBg, outcomeColorVar, outcomeDisplayLabel } from "@/lib/outcome-colors";
 import { CountdownBadge } from "@/components/ui/countdown-badge";
@@ -57,7 +58,7 @@ export function MarketCard({
     <div className="group relative flex flex-col rounded-xl border border-border bg-surface p-4 shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition-all hover:border-border-strong hover:shadow-sm">
       <div className="flex items-center justify-between gap-2">
         <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">
-          {market.category}
+          {categoryDisplay(market.category)}
         </span>
         <CountdownBadge closeTime={market.closeTime} />
       </div>

@@ -256,6 +256,11 @@ model League {
   defaultRakeBps         Int @default(500)
   defaultMaxStakePerUser Int @default(500)
 
+  // owner-curated market categories (labels, editable any time). Only custom
+  // leagues read this — Global markets use the canonical list in
+  // src/lib/categories.ts, where slugs feed achievement keys.
+  categories String[] @default([])
+
   createdAt DateTime @default(now())
 
   memberships   LeagueMembership[]

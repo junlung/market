@@ -7,6 +7,7 @@ import {
   NotificationType,
   UserStatus,
 } from "@prisma/client";
+import { isGlobalCategory } from "@/lib/categories";
 import { appConfig } from "@/lib/config";
 import { formatPoints, formatSignedPoints } from "@/lib/format";
 import { marketPath } from "@/lib/leagues";
@@ -163,6 +164,29 @@ async function resolveMarketHome(leagueId?: string, closeTime?: Date) {
   return { league, season };
 }
 
+/**
+ * Global markets take a canonical slug (src/lib/categories.ts); custom-league
+ * markets take one of the league's owner-curated labels. `current` lets edits
+ * keep a value that predates a list change (or the one-time slug remap)
+ * without forcing recategorization.
+ */
+function assertCategoryAllowed(
+  league: { isGlobal: boolean; categories: string[] },
+  category: string,
+  current?: string,
+) {
+  if (current !== undefined && category === current) {
+    return;
+  }
+  if (league.isGlobal) {
+    if (!isGlobalCategory(category)) {
+      throw new Error("Pick one of the market categories.");
+    }
+  } else if (!league.categories.includes(category)) {
+    throw new Error("Pick one of this league's categories.");
+  }
+}
+
 export async function createMarket(input: {
   actorId: string;
   fields: MarketFields;
@@ -176,6 +200,7 @@ export async function createMarket(input: {
   validateOutcomeDrafts(input.outcomes);
 
   const { league, season } = await resolveMarketHome(input.leagueId, input.fields.closeTime);
+  assertCategoryAllowed(league, input.fields.category);
 
   const maxStakePerUser = season
     ? league.defaultMaxStakePerUser
@@ -218,6 +243,7 @@ export async function proposeMarket(input: {
   validateOutcomeDrafts(input.outcomes);
 
   const { league, season } = await resolveMarketHome(input.leagueId, input.fields.closeTime);
+  assertCategoryAllowed(league, input.fields.category);
 
   const market = await prisma.market.create({
     data: {
@@ -385,7 +411,10 @@ export async function updateMarket(
 ) {
   const market = await prisma.market.findUniqueOrThrow({
     where: { id: marketId },
-    include: { outcomes: { orderBy: { sortOrder: "asc" } } },
+    include: {
+      outcomes: { orderBy: { sortOrder: "asc" } },
+      league: { select: { isGlobal: true, categories: true } },
+    },
   });
 
   const editable =
@@ -398,6 +427,7 @@ export async function updateMarket(
   }
 
   validateMarketDraft(input);
+  assertCategoryAllowed(market.league, input.category, market.category);
 
   if (input.outcomes) {
     validateOutcomeDrafts(input.outcomes);
@@ -975,7 +1005,14 @@ export async function getMarketDetail(marketId: string, userId: string) {
     where: { id: marketId },
     include: {
       league: {
-        select: { id: true, slug: true, name: true, isGlobal: true, balancePolicy: true },
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          isGlobal: true,
+          balancePolicy: true,
+          categories: true,
+        },
       },
       outcomes: { orderBy: { sortOrder: "asc" } },
       poolStakes: {
@@ -1461,6 +1498,7 @@ export async function getAdminMarketDetail(marketId: string) {
   const market = await prisma.market.findUnique({
     where: { id: marketId },
     include: {
+      league: { select: { isGlobal: true, categories: true } },
       outcomes: { orderBy: { sortOrder: "asc" } },
       resolution: true,
       bets: {

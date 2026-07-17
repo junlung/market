@@ -16,7 +16,7 @@ import {
 import { EmojiPicker } from "@/components/admin/emoji-picker";
 import type { MarketFormState } from "@/app/actions/markets";
 import { Button } from "@/components/ui/button";
-import { FieldError, Input, Label, Textarea } from "@/components/ui/input";
+import { FieldError, Input, Label, Select, Textarea } from "@/components/ui/input";
 
 type OutcomeRow = { label: string; color: string; emoji: string };
 
@@ -41,6 +41,8 @@ type Props = {
   leagueId?: string;
   /** Show the "Create & open" button even outside admin mode (league operators). */
   allowOpenNow?: boolean;
+  /** Category choices: canonical slugs (Global) or the league's labels. */
+  categoryOptions: Array<{ value: string; label: string }>;
 };
 
 const initialState: MarketFormState = {};
@@ -93,7 +95,15 @@ function nextUnusedColor(rows: OutcomeRow[]): OutcomeColor {
   );
 }
 
-export function MarketForm({ action, market, mode = "admin", submitLabel, leagueId, allowOpenNow }: Props) {
+export function MarketForm({
+  action,
+  market,
+  mode = "admin",
+  submitLabel,
+  leagueId,
+  allowOpenNow,
+  categoryOptions,
+}: Props) {
   const [state, formAction, pending] = useActionState(action, initialState);
   const [closeTime, setCloseTime] = useState(
     market ? toInputDateTime(market.closeTime) : toInputDateTime(addHours(new Date(), 24)),
@@ -169,14 +179,21 @@ export function MarketForm({ action, market, mode = "admin", submitLabel, league
         </div>
         <div>
           <Label htmlFor="mf-category">Category</Label>
-          <Input
-            id="mf-category"
-            name="category"
-            defaultValue={market?.category}
-            placeholder="Sports"
-            minLength={2}
-            required
-          />
+          <Select id="mf-category" name="category" defaultValue={market?.category ?? ""} required>
+            <option value="" disabled>
+              Pick a category…
+            </option>
+            {/* an edited market may hold a value that predates the current
+                list — keep it selectable so edits don't force recategorization */}
+            {market && !categoryOptions.some((option) => option.value === market.category) ? (
+              <option value={market.category}>{market.category}</option>
+            ) : null}
+            {categoryOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
           <FieldError message={state.fieldErrors?.category} />
         </div>
       </div>

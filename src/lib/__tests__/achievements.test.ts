@@ -11,6 +11,7 @@ function fact(overrides: Partial<ResolvedMarketFact> & { marketId: string }): Re
   return {
     resolvedAt: new Date("2026-07-01T00:00:00Z"),
     won: false,
+    category: "wildcard",
     minWinningImpliedProb: null,
     ...overrides,
   };
@@ -106,6 +107,46 @@ describe("evaluateAchievements", () => {
         "volume-10",
       ]),
     );
+  });
+});
+
+describe("category win tiers", () => {
+  function categorySeries(category: string, wins: number, losses = 0): ResolvedMarketFact[] {
+    return Array.from({ length: wins + losses }, (_, index) =>
+      fact({
+        marketId: `${category}-${String(index).padStart(3, "0")}`,
+        resolvedAt: new Date(Date.UTC(2026, 0, 1 + index)),
+        won: index < wins,
+        category,
+      }),
+    );
+  }
+
+  it("counts wins per eligible category at the tier boundary", () => {
+    expect(evaluateAchievements(categorySeries("sports", 2))).not.toContain("cat-sports-3");
+    const three = evaluateAchievements(categorySeries("sports", 3));
+    expect(three).toContain("cat-sports-3");
+    expect(three).not.toContain("cat-sports-10");
+    expect(evaluateAchievements(categorySeries("sports", 10))).toContain("cat-sports-10");
+  });
+
+  it("losses and other categories don't advance a category's count", () => {
+    // 3 sports losses + 3 news wins → no sports tier, news tier earned
+    const mixed = [
+      ...categorySeries("sports", 0, 3),
+      ...categorySeries("news", 3),
+    ];
+    const earned = evaluateAchievements(mixed);
+    expect(earned).not.toContain("cat-sports-3");
+    expect(earned).toContain("cat-news-3");
+  });
+
+  it("wildcard and non-canonical categories earn nothing", () => {
+    const earned = evaluateAchievements([
+      ...categorySeries("wildcard", 10),
+      ...categorySeries("Sports", 10), // pre-remap free text ≠ the slug
+    ]);
+    expect(earned.some((key) => key.startsWith("cat-"))).toBe(false);
   });
 });
 

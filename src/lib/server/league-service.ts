@@ -195,6 +195,7 @@ export async function createLeague(input: {
           ownerId: input.ownerId,
           joinPolicy: LeagueJoinPolicy.INVITE_CODE,
           balancePolicy: LeagueBalancePolicy.FRESH_PER_SEASON,
+          categories: ["General"],
           inviteCode: generateInviteCode(),
           ...input.settings,
           memberships: { create: { userId: input.ownerId, role: LeagueRole.OWNER } },
@@ -555,6 +556,44 @@ export async function updateLeagueSettings(
   });
   await logLeagueAction(`Updated league settings: ${updated.name}`, actorId);
   return updated;
+}
+
+/**
+ * Replaces the league's market category list (labels, not slugs — custom
+ * leagues have no achievements to anchor). Editable any time, unlike the
+ * economy settings: markets keep whatever string they were created with, so
+ * removing a label never touches existing markets.
+ */
+export async function updateLeagueCategories(
+  leagueId: string,
+  actorId: string,
+  categories: string[],
+) {
+  await requireLeagueRole(leagueId, actorId, [LeagueRole.OWNER]);
+
+  const league = await prisma.league.findUniqueOrThrow({
+    where: { id: leagueId },
+    select: { isGlobal: true },
+  });
+  if (league.isGlobal) {
+    throw new Error("Global League categories are fixed in code, not settings.");
+  }
+
+  const cleaned = categories.map((category) => category.trim()).filter(Boolean);
+  if (cleaned.length < 1 || cleaned.length > 12) {
+    throw new Error("Leagues have between 1 and 12 categories.");
+  }
+  if (cleaned.some((category) => category.length < 2 || category.length > 24)) {
+    throw new Error("Category names are 2–24 characters.");
+  }
+  if (new Set(cleaned.map((category) => category.toLowerCase())).size !== cleaned.length) {
+    throw new Error("Category names must be unique.");
+  }
+
+  return prisma.league.update({
+    where: { id: leagueId },
+    data: { categories: cleaned },
+  });
 }
 
 /** Owner promotes/demotes members between MEMBER and MOD. Ownership doesn't transfer in v1. */
