@@ -63,8 +63,8 @@ export function ViewerPositionCard({
       </div>
       {voidAmount > 0 ? (
         <p className="mt-2.5 rounded-md bg-warn/10 p-2 text-xs font-medium text-warn">
-          {formatPoints(voidAmount)} pts placed after the betting cutoff are void — they'll be
-          refunded at settlement and pay nothing.
+          {formatPoints(voidAmount)} pts placed after the betting cutoff are void — they&apos;ll
+          be refunded at settlement and pay nothing.
         </p>
       ) : null}
       <p className="mt-2.5 border-t border-border pt-2 text-[11px] text-faint">
