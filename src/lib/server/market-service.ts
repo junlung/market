@@ -3,7 +3,6 @@ import {
   AppLogLevel,
   GemLedgerEntryType,
   LedgerEntryType,
-  MarketOutcome,
   MarketStatus,
   NotificationType,
   UserStatus,
@@ -87,18 +86,6 @@ function outcomeCreateInput(outcomes: OutcomeDraft[]) {
       sortOrder: index,
     })),
   };
-}
-
-/** Legacy release-1 dual-write: the YES/NO enum value for a binary market's outcome. */
-function legacyOutcomeEnum(outcomes: OutcomeRow[], winningOutcomeId: string | null) {
-  if (winningOutcomeId === null) {
-    return MarketOutcome.CANCELED;
-  }
-  if (outcomes.length !== 2) {
-    return null;
-  }
-  const winner = outcomes.find((outcome) => outcome.id === winningOutcomeId);
-  return winner?.sortOrder === 0 ? MarketOutcome.YES : MarketOutcome.NO;
 }
 
 // ---------------------------------------------------------------------------
@@ -634,15 +621,11 @@ async function writeSettlement(input: {
       });
     }
 
-    const legacyEnum = legacyOutcomeEnum(market.outcomes, input.winningOutcomeId);
-    const isBinary = market.outcomes.length === 2;
-
     await tx.market.update({
       where: { id: input.marketId },
       data: {
         status: input.toStatus,
         winningOutcomeId: input.winningOutcomeId,
-        finalOutcome: legacyEnum,
         ...(input.toStatus === MarketStatus.RESOLVED
           ? {
               closedAt: market.closedAt ?? new Date(),
@@ -663,11 +646,8 @@ async function writeSettlement(input: {
       create: {
         marketId: input.marketId,
         winningOutcomeId: input.winningOutcomeId,
-        outcome: legacyEnum,
         resolutionSource: input.resolutionSource,
         notes: input.notes,
-        yesPoolFinal: isBinary ? market.outcomes[0].pool : null,
-        noPoolFinal: isBinary ? market.outcomes[1].pool : null,
         winningPool: result.winningPool,
         losingPool: result.losingPool,
         rakeAmount: result.rake,
@@ -785,7 +765,6 @@ export async function cancelMarket(marketId: string, adminId: string, reason: st
       where: { id: marketId },
       data: {
         status: MarketStatus.CANCELED,
-        finalOutcome: MarketOutcome.CANCELED,
         canceledById: adminId,
         canceledAt: new Date(),
       },

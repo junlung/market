@@ -36,20 +36,16 @@ This file is the map; each area's full truth lives in docs/ (table below).
    migrations AND `prisma/partial-indexes.sql` — new ones must land in both.
 5. **Enum rule:** adding a Postgres enum value and first using it must be separate
    migrations (Postgres can't reference a same-transaction enum value).
-6. **Legacy dual-writes:** binary markets dual-write legacy columns
-   (`yesPool`/`noPool`/`side`/…) on every write path. Nothing reads them. Keep the
-   writes intact and build nothing on them — removal is GitHub issue
-   junlung/market#1.
-7. **Gems mint from Global League activity only** (rake conversion 1:1 floored
+6. **Gems mint from Global League activity only** (rake conversion 1:1 floored
    pro-rata, achievements, placements). Custom leagues never mint gems. All gem
    tuning constants live in `src/lib/achievements.ts`.
-8. **Seasons:** Global = UTC calendar months, opened lazily, rolled by the cron;
+7. **Seasons:** Global = UTC calendar months, opened lazily, rolled by the cron;
    custom = owner-set windows, one at a time, finalized by the cron but never
    auto-reopened.
-9. **Standings rank participants only** (ACTIVE users with ≥1 settled market).
+8. **Standings rank participants only** (ACTIVE users with ≥1 settled market).
    Global attributes P&L by resolution month; custom leagues by the market's pinned
    season.
-10. **Value is granted at account approval, not signup** — starting balance, Global
+9. **Value is granted at account approval, not signup** — starting balance, Global
     League membership, starting gems. Pending/rejected accounts hold nothing.
 
 ## Danger zone

@@ -1,4 +1,4 @@
-import { AppLogEventType, AppLogLevel, BetSide, LedgerEntryType, MarketStatus } from "@prisma/client";
+import { AppLogEventType, AppLogLevel, LedgerEntryType, MarketStatus } from "@prisma/client";
 import { sumLedgerAmounts } from "@/lib/ledger";
 import { assertSafeInt } from "@/lib/parimutuel";
 import { prisma } from "@/lib/prisma";
@@ -112,17 +112,6 @@ export async function placeBet(input: {
     assertSafeInt(outcomePoolAfter, "Outcome pool");
     assertSafeInt(totalPoolAfter, "Total pool");
 
-    // release-1 dual-writes keep binary markets readable by the previous
-    // deploy while it still serves traffic; dropped in the contract release
-    const isBinary = market.outcomes.length === 2;
-    const legacySide = isBinary ? (outcome.sortOrder === 0 ? BetSide.YES : BetSide.NO) : null;
-    const yesPoolAfter = isBinary
-      ? market.yesPool + (outcome.sortOrder === 0 ? input.amount : 0)
-      : null;
-    const noPoolAfter = isBinary
-      ? market.noPool + (outcome.sortOrder === 1 ? input.amount : 0)
-      : null;
-
     const bet = await tx.bet.create({
       data: {
         userId: input.userId,
@@ -131,9 +120,6 @@ export async function placeBet(input: {
         amount: input.amount,
         outcomePoolAfter,
         totalPoolAfter,
-        side: legacySide,
-        yesPoolAfter,
-        noPoolAfter,
       },
     });
 
@@ -147,16 +133,12 @@ export async function placeBet(input: {
       },
       update: {
         amount: { increment: input.amount },
-        ...(legacySide === BetSide.YES ? { yesStake: { increment: input.amount } } : {}),
-        ...(legacySide === BetSide.NO ? { noStake: { increment: input.amount } } : {}),
       },
       create: {
         userId: input.userId,
         marketId: input.marketId,
         outcomeId: outcome.id,
         amount: input.amount,
-        yesStake: legacySide === BetSide.YES ? input.amount : 0,
-        noStake: legacySide === BetSide.NO ? input.amount : 0,
       },
     });
 
@@ -170,7 +152,6 @@ export async function placeBet(input: {
     await tx.market.update({
       where: { id: input.marketId },
       data: {
-        ...(isBinary ? { yesPool: yesPoolAfter!, noPool: noPoolAfter! } : {}),
         firstBetAt: market.firstBetAt ?? new Date(),
         lastBetAt: new Date(),
       },

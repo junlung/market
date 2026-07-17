@@ -102,16 +102,6 @@ in-transaction would balloon the SERIALIZABLE read set and multiply retry confli
 A failed post-commit pass is logged at WARN and repaired by the daily cron, which
 re-sweeps the last 48 hours of resolutions (`src/lib/server/achievement-service.ts`).
 
-## Legacy dual-writes
-
-Binary (2-outcome) markets dual-write a set of legacy columns on every write path:
-`Market.finalOutcome/yesPool/noPool`, `Bet.side/yesPoolAfter/noPoolAfter`,
-`PoolStake.yesStake/noStake`, `MarketResolution.outcome/yesPoolFinal/noPoolFinal`, plus
-the `MarketOutcome`/`BetSide` enums. Nothing reads them; they exist so the schema can
-roll back one release. Dropping them (and their write sites in `bet-service.ts` /
-`market-service.ts`) is tracked in **GitHub issue junlung/market#1**. Until that lands:
-keep the dual-writes intact, and never build new features on these columns.
-
 ## Reads
 
 `market-service.ts` also owns the read paths: `getDashboardMarkets` (league-scoped,

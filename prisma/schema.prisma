@@ -25,19 +25,6 @@ enum MarketStatus {
   CANCELED
 }
 
-// Legacy release-1 enums — dropped in the contract release along with the
-// columns that use them (Postgres can't shrink an enum in place).
-enum MarketOutcome {
-  YES
-  NO
-  CANCELED
-}
-
-enum BetSide {
-  YES
-  NO
-}
-
 enum LedgerEntryType {
   INITIAL_GRANT
   WEEKLY_ALLOWANCE
@@ -370,12 +357,6 @@ model Market {
   winningOutcome   Outcome?  @relation("MarketWinningOutcome", fields: [winningOutcomeId], references: [id], onDelete: Restrict)
   outcomes         Outcome[] @relation("MarketOutcomes")
 
-  // legacy release-1 columns, dual-written for binary markets — dropped in
-  // the contract release
-  finalOutcome MarketOutcome?
-  yesPool      Int            @default(0)
-  noPool       Int            @default(0)
-
   // economy snapshots frozen at creation; admin-editable until first bet
   rakeBps         Int @default(500)
   maxStakePerUser Int
@@ -451,12 +432,6 @@ model Bet {
   outcomePoolAfter Int
   totalPoolAfter   Int
 
-  // legacy release-1 columns, dual-written for binary markets — dropped in
-  // the contract release
-  side         BetSide?
-  yesPoolAfter Int?
-  noPoolAfter  Int?
-
   createdAt     DateTime      @default(now())
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   market        Market        @relation(fields: [marketId], references: [id], onDelete: Cascade)
@@ -475,11 +450,6 @@ model PoolStake {
   marketId  String
   outcomeId String
   amount    Int    @default(0)
-
-  // legacy release-1 columns, dual-written for binary markets — dropped in
-  // the contract release
-  yesStake Int @default(0)
-  noStake  Int @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -538,12 +508,6 @@ model MarketResolution {
   // gems minted from this market's rake (Phase 3): Σ RAKE_CONVERSION entries.
   // Invariant: gemsMinted <= rakeAmount (floor rounding drops "gem dust").
   gemsMinted       Int     @default(0)
-
-  // legacy release-1 columns, dual-written for binary markets — dropped in
-  // the contract release
-  outcome      MarketOutcome?
-  yesPoolFinal Int?
-  noPoolFinal  Int?
 
   createdById String
   createdAt   DateTime @default(now())
