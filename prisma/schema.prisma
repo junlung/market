@@ -77,6 +77,18 @@ enum AppLogEventType {
   MEMBERSHIP_ACTION
 }
 
+enum NotificationType {
+  PROPOSAL_SUBMITTED
+  MEMBER_PENDING
+  FEEDBACK_SUBMITTED
+  MARKET_AWAITING_RESOLUTION
+  MARKET_RESOLVED
+  MARKET_CANCELED
+  PROPOSAL_APPROVED
+  PROPOSAL_REJECTED
+  MEMBER_APPROVED
+}
+
 enum UserStatus {
   PENDING
   ACTIVE
@@ -180,6 +192,7 @@ model User {
   leagueInvitesReceived LeagueInvite[] @relation("LeagueInvitesReceived")
   leagueInvitesSent     LeagueInvite[] @relation("LeagueInvitesSent")
   feedback              Feedback[]
+  notifications         Notification[]
 
   @@index([status, createdAt])
 }
@@ -605,4 +618,26 @@ model AppLog {
   market    Market?         @relation(fields: [marketId], references: [id], onDelete: SetNull)
 
   @@index([eventType, createdAt])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String           // recipient
+  type      NotificationType
+  title     String
+  body      String?
+  // canonical in-app destination, constructed server-side at emission
+  // (marketPath() or a fixed admin route) — never user input, safe as a Link
+  href      String
+  // idempotency for re-emittable paths — same pattern as UserItem.grantKey:
+  // plain nullable unique, try-create + swallow P2002. Null for one-shot
+  // emissions that can't mechanically double-fire (member pending/approved).
+  dedupeKey String?          @unique
+  metadata  Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
 }

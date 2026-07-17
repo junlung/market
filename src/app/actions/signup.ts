@@ -1,11 +1,12 @@
 "use server";
 
-import { UserStatus } from "@prisma/client";
+import { NotificationType, UserStatus } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { hashPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { emitToAdmins } from "@/lib/server/notification-service";
 import { usernameValueSchema } from "@/lib/validation";
 
 const signUpSchema = z.object({
@@ -101,6 +102,16 @@ export async function registerWithInvite(_: SignUpFormState, formData: FormData)
     }
     throw error;
   }
+
+  // outside the try/catch above (emitToAdmins never throws, and redirect()
+  // throws NEXT_REDIRECT, which must not be swallowed). No dedupeKey: a
+  // rejected email re-applying SHOULD re-notify the queue.
+  await emitToAdmins({
+    type: NotificationType.MEMBER_PENDING,
+    title: "New member awaiting approval",
+    body: `${parsed.data.name} (${email})`,
+    href: "/admin/members",
+  });
 
   redirect("/sign-in?pending=1");
 }

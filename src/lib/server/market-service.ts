@@ -5,9 +5,12 @@ import {
   LedgerEntryType,
   MarketOutcome,
   MarketStatus,
+  NotificationType,
   UserStatus,
 } from "@prisma/client";
 import { appConfig } from "@/lib/config";
+import { formatPoints, formatSignedPoints } from "@/lib/format";
+import { marketPath } from "@/lib/leagues";
 import { checkGemConservation, computeRakeGemSplit } from "@/lib/gems";
 import { buildBalanceBreakdown, reconcileBalanceFromBreakdown, sumLedgerAmounts } from "@/lib/ledger";
 import {
@@ -30,6 +33,7 @@ import { prisma } from "@/lib/prisma";
 import { evaluateAchievementsForMarket } from "@/lib/server/achievement-service";
 import { getEquippedCosmetics } from "@/lib/server/item-service";
 import { ensureGlobalLeague, getActiveSeason, requireLeagueRole } from "@/lib/server/league-service";
+import { emitNotification, emitToAdmins, emitToUsers } from "@/lib/server/notification-service";
 import { withSerializableRetry } from "@/lib/server/tx";
 import { LeagueRole } from "@prisma/client";
 
@@ -244,6 +248,47 @@ export async function proposeMarket(input: {
 
   await logProposalAction(`Proposed market: ${market.title}`, input.proposerId, market.id);
 
+  // Post-commit notification to whoever reviews proposals here: app admins for
+  // the Global League, the league's OWNER/MODs otherwise. The lookups can
+  // fail, and emission must never fail the (already committed) proposal.
+  try {
+    const proposer = await prisma.user.findUnique({
+      where: { id: input.proposerId },
+      select: { name: true },
+    });
+    const notification = {
+      type: NotificationType.PROPOSAL_SUBMITTED,
+      title: `New proposal: ${market.title}`,
+      body: proposer ? `by ${proposer.name}` : undefined,
+      href: marketPath(league, market.id),
+      actorId: input.proposerId,
+      dedupeKeyFor: (recipientId: string) => `proposal-submitted:${market.id}:user:${recipientId}`,
+      metadata: { marketId: market.id },
+    };
+    if (league.isGlobal) {
+      await emitToAdmins(notification);
+    } else {
+      const reviewers = await prisma.leagueMembership.findMany({
+        where: { leagueId: league.id, role: { in: [LeagueRole.OWNER, LeagueRole.MOD] } },
+        select: { userId: true },
+      });
+      await emitToUsers(
+        reviewers.map((reviewer) => reviewer.userId),
+        notification,
+      );
+    }
+  } catch (error) {
+    await prisma.appLog.create({
+      data: {
+        level: AppLogLevel.WARN,
+        eventType: AppLogEventType.PROPOSAL_ACTION,
+        message: `Notification emission failed after proposal: ${market.title}`,
+        marketId: market.id,
+        metadata: { error: error instanceof Error ? error.message : String(error) },
+      },
+    });
+  }
+
   return market;
 }
 
@@ -267,7 +312,10 @@ export async function approveProposal(
   adminId: string,
   options: { note?: string; openNow?: boolean } = {},
 ) {
-  const market = await prisma.market.findUniqueOrThrow({ where: { id: marketId } });
+  const market = await prisma.market.findUniqueOrThrow({
+    where: { id: marketId },
+    include: { league: { select: { slug: true, isGlobal: true } } },
+  });
 
   if (market.status !== MarketStatus.PROPOSED) {
     throw new Error("Only proposed markets can be approved.");
@@ -289,6 +337,20 @@ export async function approveProposal(
     adminId,
     marketId,
   );
+
+  if (market.createdById !== adminId) {
+    await emitNotification({
+      userId: market.createdById,
+      type: NotificationType.PROPOSAL_APPROVED,
+      title: `Proposal approved: ${market.title}`,
+      body: options.openNow
+        ? "It's open for betting."
+        : `It opens soon.${options.note ? ` — "${options.note}"` : ""}`,
+      href: marketPath(market.league, marketId),
+      dedupeKey: `proposal-decision:${marketId}:user:${market.createdById}`,
+      metadata: { marketId },
+    });
+  }
 }
 
 export async function rejectProposal(marketId: string, adminId: string, reason: string) {
@@ -297,6 +359,7 @@ export async function rejectProposal(marketId: string, adminId: string, reason: 
   if (market.status !== MarketStatus.PROPOSED) {
     throw new Error("Only proposed markets can be rejected.");
   }
+  const proposerId = market.createdById;
 
   await prisma.market.update({
     where: { id: marketId },
@@ -309,6 +372,19 @@ export async function rejectProposal(marketId: string, adminId: string, reason: 
   });
 
   await logProposalAction(`Rejected proposal: ${market.title} (${reason})`, adminId, marketId);
+
+  if (proposerId !== adminId) {
+    // REJECTED market pages 404 for everyone, so there is no subject to link
+    await emitNotification({
+      userId: proposerId,
+      type: NotificationType.PROPOSAL_REJECTED,
+      title: `Proposal rejected: ${market.title}`,
+      body: reason,
+      href: "/dashboard",
+      dedupeKey: `proposal-decision:${marketId}:user:${proposerId}`,
+      metadata: { marketId },
+    });
+  }
 }
 
 export async function updateMarket(
@@ -615,7 +691,7 @@ export async function resolveMarket(
 ) {
   const market = await prisma.market.findUniqueOrThrow({
     where: { id: marketId },
-    include: { outcomes: true },
+    include: { outcomes: true, league: { select: { slug: true, isGlobal: true } } },
   });
 
   const result = await writeSettlement({
@@ -655,11 +731,53 @@ export async function resolveMarket(
     });
   }
 
+  // Post-commit notification pass — independent of the achievements block so
+  // a failure there can't skip these. result.payouts holds winners/refunds
+  // only; losers are derived from their stakes (previewSettlement's model).
+  try {
+    const stakes = await prisma.poolStake.findMany({
+      where: { marketId, amount: { gt: 0 } },
+      select: { userId: true, amount: true },
+    });
+    const stakedByUser = new Map<string, number>();
+    for (const stake of stakes) {
+      stakedByUser.set(stake.userId, (stakedByUser.get(stake.userId) ?? 0) + stake.amount);
+    }
+    const payoutByUser = new Map(result.payouts.map((payout) => [payout.userId, payout]));
+
+    for (const [userId, staked] of stakedByUser) {
+      const payout = payoutByUser.get(userId)?.amount ?? 0;
+      const profit = payout - staked;
+      await emitNotification({
+        userId,
+        type: NotificationType.MARKET_RESOLVED,
+        title: `Resolved: ${market.title}`,
+        body: `${winnerLabel} won — ${formatSignedPoints(profit)} pts for you.`,
+        href: marketPath(market.league, marketId),
+        dedupeKey: `market-settled:${marketId}:user:${userId}`,
+        metadata: { marketId, staked, payout, profit },
+      });
+    }
+  } catch (error) {
+    await prisma.appLog.create({
+      data: {
+        level: AppLogLevel.WARN,
+        eventType: AppLogEventType.ADMIN_ACTION,
+        message: `Notification emission failed after resolving ${market.title}`,
+        marketId,
+        metadata: { error: error instanceof Error ? error.message : String(error) },
+      },
+    });
+  }
+
   return result;
 }
 
 export async function cancelMarket(marketId: string, adminId: string, reason: string) {
-  const market = await prisma.market.findUniqueOrThrow({ where: { id: marketId } });
+  const market = await prisma.market.findUniqueOrThrow({
+    where: { id: marketId },
+    include: { league: { select: { slug: true, isGlobal: true } } },
+  });
 
   if (market.status === MarketStatus.PROPOSED || market.status === MarketStatus.DRAFT) {
     // nothing staked yet — no settlement needed, just mark it canceled
@@ -673,7 +791,9 @@ export async function cancelMarket(marketId: string, adminId: string, reason: st
       },
     });
   } else {
-    await writeSettlement({
+    // capture the settlement result: payouts (kind REFUND) covers every
+    // staker, which is exactly the notification recipient list
+    const result = await writeSettlement({
       marketId,
       adminId,
       winningOutcomeId: null,
@@ -681,6 +801,18 @@ export async function cancelMarket(marketId: string, adminId: string, reason: st
       notes: reason,
       toStatus: MarketStatus.CANCELED,
     });
+
+    for (const payout of result.payouts) {
+      await emitNotification({
+        userId: payout.userId,
+        type: NotificationType.MARKET_CANCELED,
+        title: `Canceled: ${market.title}`,
+        body: `Your ${formatPoints(payout.amount)} pts were refunded.`,
+        href: marketPath(market.league, marketId),
+        dedupeKey: `market-settled:${marketId}:user:${payout.userId}`,
+        metadata: { marketId, refund: payout.amount },
+      });
+    }
   }
 
   await logAdminAction(`Canceled market: ${market.title}`, adminId, marketId, { reason });

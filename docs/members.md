@@ -156,3 +156,35 @@ Admins triage at `/admin/feedback` (unresolved newest-first on top, resolved
 collapsed below) and can resolve or reopen each entry — `resolvedAt` is a mutable
 triage flag, not part of the append-only record. The admin dashboard's
 needs-attention list shows the unresolved count with a link into the queue.
+
+## Notifications
+
+In-app notifications are event-driven rows in `Notification`
+(`src/lib/server/notification-service.ts`), emitted **post-commit** at the service
+layer — a failed emission never fails the parent operation (failures land in
+`AppLog` as WARN rows). Idempotency is DB-enforced via a nullable unique
+`dedupeKey` (the `UserItem.grantKey` pattern: try-create, swallow the unique
+violation), so emission paths can safely re-run.
+
+Who gets notified:
+
+- **Proposal submitted** → whoever reviews it: app admins for Global League
+  markets, the league's OWNER/MODs for custom leagues. The proposer is never
+  self-notified; the same applies to every type below.
+- **New member awaiting approval** → all admins, on signup (no dedupe key — a
+  rejected email re-applying should re-notify the queue).
+- **New feedback** → all admins.
+- **Market awaiting resolution** → all admins, via a lazy sweep: no event fires
+  when a market drifts past `closeTime`, so the sweep runs whenever an admin
+  loads a page (`getNotificationSnapshot`), guarded by a cheap indexed count and
+  deduped per market × admin.
+- **Market resolved / canceled** → every staker, with their signed P&L (resolved)
+  or refund (canceled) in the payload. Resolved and canceled share one
+  `market-settled:` dedupe namespace per market × user — settlement is terminal,
+  so a user can never receive both.
+- **Proposal approved / rejected** → the proposer (shared `proposal-decision:`
+  dedupe namespace — a proposal is decided exactly once).
+- **Member approved** → the approved member (welcome message).
+
+The `href` on each row is constructed server-side at emission (`marketPath` or a
+fixed admin route) and is safe to render as a link. Rows are kept indefinitely.

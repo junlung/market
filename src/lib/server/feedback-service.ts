@@ -1,5 +1,7 @@
+import { NotificationType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { emitToAdmins } from "@/lib/server/notification-service";
 
 export async function submitFeedback(input: {
   userId: string;
@@ -18,13 +20,25 @@ export async function submitFeedback(input: {
   // treat it as display-only text everywhere it renders
   const path = input.path?.startsWith("/") ? input.path : null;
 
-  return prisma.feedback.create({
+  const feedback = await prisma.feedback.create({
     data: {
       userId: input.userId,
       message,
       path,
     },
   });
+
+  await emitToAdmins({
+    type: NotificationType.FEEDBACK_SUBMITTED,
+    title: "New feedback",
+    body: message.length > 140 ? `${message.slice(0, 139)}…` : message,
+    href: "/admin/feedback",
+    actorId: input.userId,
+    dedupeKeyFor: (adminId) => `feedback:${feedback.id}:user:${adminId}`,
+    metadata: { feedbackId: feedback.id },
+  });
+
+  return feedback;
 }
 
 export async function listFeedback() {
