@@ -57,9 +57,9 @@ accounts hold nothing, so junk signups cost nothing.
   there).
 - Admin sub-pages (`/admin`, `/admin/markets`, `/admin/members`, `/admin/items`,
   `/admin/feedback`) share a tab-strip nav rendered by `src/app/(app)/admin/layout.tsx`.
-- The notification bell sits between the balance chip and the theme toggle at every
+- The notification bell sits between the balance chip and the avatar at every
   width; `/notifications` (most recent 50) is reached from it and is deliberately
-  absent from the nav lists.
+  absent from the nav lists. Theme switching lives on the account page only.
 
 ## Usernames and profiles
 

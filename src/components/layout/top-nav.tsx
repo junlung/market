@@ -12,7 +12,6 @@ import { NavLinks } from "@/components/layout/nav-links";
 import { NotificationsMenu } from "@/components/layout/notifications-menu";
 import { SearchBox } from "@/components/layout/search-box";
 import { UserMenu } from "@/components/layout/user-menu";
-import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 export async function TopNav() {
   const session = await requireSession();
@@ -37,9 +36,7 @@ export async function TopNav() {
           <Link href="/dashboard" className="text-base font-bold tracking-tight">
             Prolly<span className="text-primary">Market</span>
           </Link>
-          {/* hidden on phones — the row can't fit it beside the bell, and the
-              one-time beta notice carries the message there */}
-          <span className="hidden rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary sm:inline-flex">
+          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
             Beta
           </span>
         </div>
@@ -58,8 +55,6 @@ export async function TopNav() {
         />
 
         <NotificationsMenu unreadCount={notifications.unreadCount} items={notifications.recent} />
-
-        <ThemeToggle />
 
         <UserMenu
           name={session.user.name ?? "Player"}
