@@ -1,8 +1,9 @@
-import { AppLogEventType, AppLogLevel, LedgerEntryType, UserStatus } from "@prisma/client";
+import { AppLogEventType, AppLogLevel, LedgerEntryType, NotificationType, UserStatus } from "@prisma/client";
 import { appConfig } from "@/lib/config";
 import { prisma } from "@/lib/prisma";
 import { grantStartingGems } from "@/lib/server/gem-service";
 import { ensureGlobalLeague, ensureLeagueMembership } from "@/lib/server/league-service";
+import { emitNotification } from "@/lib/server/notification-service";
 
 function logMembershipAction(message: string, actorId: string) {
   return prisma.appLog.create({
@@ -67,6 +68,17 @@ export async function approveUser(userId: string, adminId: string, note?: string
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   await logMembershipAction(`Approved member: ${user.name} (${user.email})`, adminId);
+
+  // no dedupeKey needed: a double-approve throws on the status guard inside
+  // the tx before this line can re-run
+  await emitNotification({
+    userId,
+    type: NotificationType.MEMBER_APPROVED,
+    title: "You're in — welcome to ProllyMarket",
+    body: "Your starting balance has landed. Go make some questionable bets.",
+    href: "/dashboard",
+  });
+
   return user;
 }
 
