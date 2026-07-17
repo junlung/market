@@ -583,6 +583,51 @@ export async function setMemberRole(
 }
 
 /**
+ * Deletes a custom league and everything scoped to it: ledger entries and
+ * markets go explicitly (their league FKs are Restrict), then the league row
+ * cascades memberships, invites, and seasons. Season trophies survive — they
+ * are UserItem rows with provenance strings, not league FKs.
+ *
+ * OWNER only (app admins bypass via requireLeagueRole). Refuses the Global
+ * League and any league with an ACTIVE season — finish or cancel the season
+ * first, so a live game can't be rage-deleted out from under its members.
+ * `confirmName` must match the league's exact name (the UI's type-to-confirm
+ * gate, re-checked here so the server never trusts the client's disable state).
+ */
+export async function deleteLeague(leagueId: string, actorId: string, confirmName: string) {
+  await requireLeagueRole(leagueId, actorId, [LeagueRole.OWNER]);
+
+  const league = await prisma.league.findUniqueOrThrow({
+    where: { id: leagueId },
+    select: { id: true, name: true, slug: true, isGlobal: true },
+  });
+  if (league.isGlobal) {
+    throw new Error("The Global League can't be deleted.");
+  }
+  if (confirmName.trim() !== league.name) {
+    throw new Error("Type the league's exact name to confirm.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const activeSeason = await tx.season.findFirst({
+      where: { leagueId, status: SeasonStatus.ACTIVE },
+      select: { id: true },
+    });
+    if (activeSeason) {
+      throw new Error("This league has a season in progress — finish it before deleting.");
+    }
+
+    await tx.ledgerEntry.deleteMany({ where: { leagueId } });
+    await tx.market.deleteMany({ where: { leagueId } });
+    await tx.league.delete({ where: { id: leagueId } });
+  });
+
+  await logLeagueAction(`Deleted league: ${league.name} (${league.slug})`, actorId, {
+    leagueId,
+  });
+}
+
+/**
  * Gate for league operations: the league's OWNER/MODs (per `roles`) — or an
  * app admin, who can operate any league as the deployment's safety valve.
  */

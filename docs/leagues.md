@@ -66,6 +66,16 @@ Points never cross leagues: bets require membership in the market's league, and 
 balance check scopes to that league (and season where fresh stacks apply). A dormant
 custom league — no ACTIVE season — reads a 0 balance for everyone.
 
+- **Deletion** (`deleteLeague`, owner-only with the usual app-admin bypass): erases the
+  league and everything scoped to it — ledger entries and markets are deleted
+  explicitly inside one transaction (their league FKs are `Restrict`), then the league
+  row cascades memberships, invites, and seasons. Refused for the Global League and
+  while a season is ACTIVE ("finish it first" beats a rage-delete); the settings-page
+  danger zone requires typing the exact league name, re-checked server-side. Season
+  trophies survive deletion — they're `UserItem` rows carrying provenance strings, not
+  league FKs. The deletion lands in the audit trail via `logLeagueAction` (the app log
+  keeps the league's name and slug after the row is gone).
+
 ## Standings
 
 `getSeasonStandings` (`src/lib/server/season-service.ts`) computes standings on the fly

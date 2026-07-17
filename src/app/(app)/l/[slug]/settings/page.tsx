@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { LeagueRole, SeasonStatus, UserRole } from "@prisma/client";
 import { CalendarClock } from "lucide-react";
 import { updateLeagueSettingsAction } from "@/app/actions/leagues";
+import { DeleteLeagueCard } from "@/components/leagues/delete-league-card";
 import { InviteCodeCard } from "@/components/leagues/invite-code-card";
 import { InviteMemberForm } from "@/components/leagues/invite-member-form";
 import { LeagueForm } from "@/components/leagues/league-form";
@@ -178,12 +179,19 @@ export default async function LeagueSettingsPage({
       <div className="space-y-3">
         <h2 className="text-sm font-semibold">League settings</h2>
         {isOwner ? (
-          <LeagueForm
-            action={updateLeagueSettingsAction}
-            league={league}
-            settingsLocked={settingsLocked}
-            submitLabel="Save settings"
-          />
+          <>
+            <LeagueForm
+              action={updateLeagueSettingsAction}
+              league={league}
+              settingsLocked={settingsLocked}
+              submitLabel="Save settings"
+            />
+            <DeleteLeagueCard
+              leagueId={league.id}
+              leagueName={league.name}
+              seasonActive={Boolean(activeSeason)}
+            />
+          </>
         ) : (
           <p className="rounded-xl border border-border bg-surface p-4 text-sm text-muted">
             Only the owner can change league settings. Mods can rotate the invite code and run

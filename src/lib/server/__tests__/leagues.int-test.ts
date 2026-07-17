@@ -27,6 +27,7 @@ import {
   createLeague,
   createLeagueInvite,
   declineLeagueInvite,
+  deleteLeague,
   ensureGlobalLeague,
   ensureLeagueMembership,
   getLeagueBalance,
@@ -982,6 +983,98 @@ describe.skipIf(!enabled)("custom leagues (2b)", () => {
       expect(ids.has(owner.id)).toBe(false);
       expect(ids.has(member.id)).toBe(false);
       expect(ids.has(invited.id)).toBe(false);
+    });
+  });
+
+  describe("league deletion", () => {
+    it("owner deletes a played-out league: full cleanup, trophies and global economy survive", async () => {
+      const owner = await createUser(500);
+      const member = await createUser(500);
+      const league = await createCustomLeague(owner.id);
+      await joinLeagueByCode(member.id, league.inviteCode!);
+      const season = await startSeason(league.id, owner.id);
+
+      const market = await createMarket({
+        actorId: owner.id,
+        leagueId: league.id,
+        fields: {
+          title: "Does the league survive the weekend?",
+          description: "Resolves YES if nobody rage-quits before Sunday.",
+          category: "Trip",
+          closeTime: new Date(Date.now() + 60 * 60 * 1000),
+          resolveTime: new Date(Date.now() + 90 * 60 * 1000),
+          resolutionSource: "group consensus",
+        },
+        outcomes: [
+          { label: "Yes", color: "green" },
+          { label: "No", color: "red" },
+        ],
+        openNow: true,
+      });
+      await bet(owner.id, market.id, market.outcomes[0].id, 100);
+      await bet(member.id, market.id, market.outcomes[1].id, 100);
+      await resolveMarket(market.id, owner.id, market.outcomes[0].id, "consensus");
+
+      // play the season out so deletion isn't blocked, and so trophies exist
+      await prisma.season.update({
+        where: { id: season.id },
+        data: { endsAt: new Date(Date.now() - 1000) },
+      });
+      await finalizeDueSeasons(new Date());
+      expect(await prisma.userItem.count()).toBe(2);
+
+      await deleteLeague(league.id, owner.id, league.name);
+
+      expect(await prisma.league.findUnique({ where: { id: league.id } })).toBeNull();
+      expect(await prisma.season.count({ where: { leagueId: league.id } })).toBe(0);
+      expect(await prisma.market.count({ where: { leagueId: league.id } })).toBe(0);
+      expect(await prisma.ledgerEntry.count({ where: { leagueId: league.id } })).toBe(0);
+      expect(await prisma.leagueMembership.count({ where: { leagueId: league.id } })).toBe(0);
+
+      // trophies are forever; the Global League economy never noticed
+      expect(await prisma.userItem.count()).toBe(2);
+      expect(await getUserBalance(owner.id)).toBe(500);
+      expect(await getUserBalance(member.id)).toBe(500);
+    });
+
+    it("refuses an active season, a wrong confirm name, non-owners, and the global league", async () => {
+      const owner = await createUser(0);
+      const mod = await createUser(0);
+      const league = await createCustomLeague(owner.id);
+      await joinLeagueByCode(mod.id, league.inviteCode!);
+      await setMemberRole(league.id, owner.id, mod.id, LeagueRole.MOD);
+      await startSeason(league.id, owner.id);
+
+      await expect(deleteLeague(league.id, owner.id, league.name)).rejects.toThrow(
+        /season in progress/i,
+      );
+
+      await prisma.season.updateMany({
+        where: { leagueId: league.id },
+        data: { status: SeasonStatus.FINALIZED },
+      });
+
+      await expect(deleteLeague(league.id, owner.id, "Wrong Name")).rejects.toThrow(/exact name/i);
+      await expect(deleteLeague(league.id, mod.id, league.name)).rejects.toThrow(/permission/i);
+
+      const admin = await createUser(0, UserRole.ADMIN);
+      const global = await ensureGlobalLeague();
+      await expect(deleteLeague(global.id, admin.id, global.name)).rejects.toThrow(/global/i);
+
+      expect(await prisma.league.findUnique({ where: { id: league.id } })).not.toBeNull();
+    });
+
+    it("app admins can delete any league, and pending invites go with it", async () => {
+      const owner = await createUser(0);
+      const invitee = await createUser(0);
+      const admin = await createUser(0, UserRole.ADMIN);
+      const league = await createCustomLeague(owner.id);
+      await createLeagueInvite(league.id, owner.id, invitee.id);
+
+      await deleteLeague(league.id, admin.id, league.name);
+
+      expect(await prisma.league.findUnique({ where: { id: league.id } })).toBeNull();
+      expect(await prisma.leagueInvite.count({ where: { leagueId: league.id } })).toBe(0);
     });
   });
 });

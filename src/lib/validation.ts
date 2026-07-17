@@ -205,6 +205,11 @@ export const leagueInviteIdSchema = z.object({
   inviteId: z.string().cuid(),
 });
 
+export const deleteLeagueSchema = z.object({
+  leagueId: z.string().cuid(),
+  confirmName: z.string().min(1, "Type the league's exact name to confirm."),
+});
+
 // --- Phase 3b: admin item authoring ---
 
 export const itemSlugSchema = z

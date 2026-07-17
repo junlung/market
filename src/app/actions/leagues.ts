@@ -8,6 +8,7 @@ import {
   createLeague,
   createLeagueInvite,
   declineLeagueInvite,
+  deleteLeague,
   joinLeagueByCode,
   revokeLeagueInvite,
   rotateInviteCode,
@@ -20,6 +21,7 @@ import {
   collectFieldErrors,
   createLeagueInviteSchema,
   createSeasonSchema,
+  deleteLeagueSchema,
   joinLeagueSchema,
   leagueFormSchema,
   leagueInviteIdSchema,
@@ -257,6 +259,30 @@ export async function declineLeagueInviteAction(
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Failed to decline the invite." };
   }
+}
+
+export async function deleteLeagueAction(
+  _: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const session = await requireSession();
+  const parsed = deleteLeagueSchema.safeParse({
+    leagueId: formData.get("leagueId"),
+    confirmName: formData.get("confirmName"),
+  });
+
+  if (!parsed.success) {
+    return { error: "Type the league's exact name to confirm." };
+  }
+
+  try {
+    await deleteLeague(parsed.data.leagueId, session.user.id, parsed.data.confirmName);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to delete the league." };
+  }
+
+  revalidatePath("/", "layout");
+  redirect("/leagues");
 }
 
 export type SeasonFormState = ActionResult & {
